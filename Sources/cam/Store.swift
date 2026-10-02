@@ -14,6 +14,7 @@ struct Store {
     /// nil = 默认登录态；非 nil 等同于 CLI 的 CLAUDE_CONFIG_DIR
     var configDir: String?
     /// 本 app 的账号库：一个 Keychain 条目，存 [accountUuid: {oauthAccount, claudeAiOauth}]
+    /// 项目已更名为 cam，但条目名保持不变，否则已存的账号会丢
     var vaultService = "ClaudeAccountManager"
     /// access token → 账号 uuid；测试里替换掉网络
     var whoami: (String) async -> String? = Store.profileUUID
@@ -85,7 +86,7 @@ struct Store {
 
     /// 在隔离的临时 CLAUDE_CONFIG_DIR 里跑 `claude auth login`，不影响当前登录
     func addViaLogin() async throws -> String {
-        let dir = NSHomeDirectory() + "/Library/Application Support/ClaudeAccountManager/login-\(UUID().uuidString)"
+        let dir = NSHomeDirectory() + "/Library/Application Support/cam/login-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let tmp = Store(configDir: dir, vaultService: vaultService)
         defer {

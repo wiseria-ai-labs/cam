@@ -1,0 +1,94 @@
+# CAM · Claude Account Manager
+
+macOS 菜单栏小工具，用来在同一台机器上管理多个 Claude Code 登录账号：一键切换、添加/删除账号、查看每个账号的 5 小时 / 7 天用量。
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/dashboard.png" width="300"><br><sub>账号总览（hover 时出现删除角标）</sub></td>
+    <td align="center"><img src="docs/confirm-switch.png" width="300"><br><sub>点击卡片 → 卡片内确认切换</sub></td>
+    <td align="center"><img src="docs/confirm-delete.png" width="300"><br><sub>点击 × → 卡片内确认删除</sub></td>
+  </tr>
+</table>
+
+<sub>示意图为模拟数据。</sub>
+
+## 功能
+
+- **账号总览**：每个账号一张卡片，显示套餐（Pro / Max 5x …）、5 小时与 7 天用量进度条和重置时间；当前账号置顶并高亮。
+- **用量配色**：< 70% 绿、70–90% 橙、≥ 90% 红；额度用尽时显示「已用尽 · 几点恢复」。
+- **切换账号**：点击卡片，在卡片内确认（回车确认 / Esc 取消）。
+- **添加账号**：在浏览器里走官方 OAuth 登录，**不会影响当前已登录的账号**；登录中途可随时取消。
+- **删除账号**：hover 卡片右上角出现 ×，确认后从账号库移除（当前账号不可删）。
+- **自动导入**：终端里用 `claude` 正常登录的账号，打开面板时会自动收进账号库。
+- **终端命令**：`cam list` / `cam switch`，方便脚本化。
+
+## 安装与运行
+
+要求：macOS 14+，Xcode 15.3+（Swift 5.10+），已安装 [Claude Code](https://code.claude.com) CLI。
+
+```bash
+git clone https://github.com/wiseria-ai-labs/cam.git && cd cam
+swift build -c release
+
+# 菜单栏常驻（脱离终端运行）
+nohup .build/release/cam >/dev/null 2>&1 &
+```
+
+想开机自启，可以把 `.build/release/cam` 加到「系统设置 → 通用 → 登录项」。目前还没有打包成 `.app`。
+
+## 用法
+
+### 菜单栏
+
+点击菜单栏的双人头像图标打开面板。每次打开都会刷新用量，右上角 ↻ 可手动刷新。
+
+| 操作 | 方式 |
+|---|---|
+| 切换账号 | 点击卡片 → 「切换」 |
+| 添加账号 | 底部「添加账号」→ 浏览器登录；可点「取消登录」中断 |
+| 删除账号 | hover 卡片 → 右上角 × → 「删除」 |
+| 取消确认 | 「取消」/ Esc / 点击面板空白处 |
+
+### 终端
+
+```bash
+cam list                     # 列出账号与用量，* 为当前账号
+cam switch work@company.com  # 按邮箱切换
+cam switch 1a2b3c4d          # 或按 uuid 前缀切换
+```
+
+## 工作原理
+
+Claude Code 的登录态由两部分组成，CAM 就是在管理这两处：
+
+| 内容 | 位置 |
+|---|---|
+| OAuth 凭据（`claudeAiOauth`，同一条目里还有各 MCP server 的 `mcpOAuth`） | 登录钥匙串，条目 `Claude Code-credentials` |
+| 账号资料（邮箱、组织等） | `~/.claude.json` 的 `oauthAccount` 字段 |
+
+- **账号库**：所有账号的凭据和资料存在登录钥匙串的一个条目里（`ClaudeAccountManager`），不落盘成明文文件。
+- **切换**：先把当前账号最新的凭据存回账号库（CLI 会轮换 refresh token，不存回的话旧存档会失效），再把目标账号写入 `claudeAiOauth` 和 `oauthAccount`。`mcpOAuth` 及 `.claude.json` 的其它字段原样保留。
+- **添加**：在临时 `CLAUDE_CONFIG_DIR` 里运行 `claude auth login`，登录完成后把凭据导入账号库，再清理临时目录和钥匙串条目。
+- **用量**：调用 `api.anthropic.com/api/oauth/usage`。非当前账号的 access token 过期时由 CAM 刷新；当前账号的 token 只读不刷新（交给 CLI，否则会让 CLI 手里的 refresh token 失效）。
+- **防串号**：存回凭据前会用 token 查询它实际属于哪个账号，避免运行中的会话把旧账号 token 写回后被错存到新账号名下。
+
+## 注意事项
+
+- **切换后要重启正在运行的 `claude` 会话。** 已启动的会话会缓存旧凭据，混用可能导致状态错乱。新开的会话直接使用新账号。
+- **依赖 Claude Code 的内部实现。** 钥匙串条目命名、凭据结构、用量接口都不是公开 API，是对照 Claude Code 2.1.287 实现的。CLI 升级后可能失效，届时需要按新版本重新核对。
+- **长期不用的账号需要偶尔打开一下面板。** refresh token 有效期约 4 周，CAM 只在查询用量时顺带续期；太久没打开，该账号就得重新登录。
+- **仅支持 macOS。** Linux / Windows 上 Claude Code 把凭据存成明文文件，CAM 目前没有适配。
+- **钥匙串读写走 `/usr/bin/security`**，与 Claude Code 自身做法一致，因此不会弹授权框。凭据较长时会短暂出现在 `security` 进程的参数里（hex 编码），CLI 本身也是这样处理的。
+- **账号库条目名为 `ClaudeAccountManager`** 是项目更名前的历史名字，为了保留已存账号没有改。
+- 多账号轮换使用前，请自行确认符合 Anthropic 的使用条款。
+
+## 开发
+
+```bash
+swift build
+swift test   # 使用真实钥匙串里的临时条目，结束后自动清理；登录取消测试需要本机装有 claude
+```
+
+代码只有两个文件：`Sources/cam/Store.swift`（登录态读写、账号库、用量）和 `Sources/cam/App.swift`（菜单栏界面与终端命令）。
+
+已知限制：面板没有滚动（账号很多时会过长）；app 在登录过程中崩溃会留下 `claude auth login` 进程。

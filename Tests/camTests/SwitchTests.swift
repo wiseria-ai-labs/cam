@@ -1,12 +1,12 @@
 import Foundation
 import Testing
-@testable import ClaudeAccountManager
+@testable import cam
 
 /// 用临时 CLAUDE_CONFIG_DIR + 临时账号库跑真实 Keychain，不碰当前登录
 @Test func switchKeepsRotatedTokensAndMcpOAuth() async throws {
     let dir = NSTemporaryDirectory() + "cam-test-\(UUID().uuidString)"
     try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-    var s = Store(configDir: dir, vaultService: "ClaudeAccountManager-test-\(UUID().uuidString)")
+    var s = Store(configDir: dir, vaultService: "cam-test-\(UUID().uuidString)")
     s.whoami = { _ in nil }  // 不走网络，按 .claude.json 认人
     defer {
         try? FileManager.default.removeItem(atPath: dir)
@@ -68,9 +68,9 @@ import Testing
     FileManager.default.createFile(atPath: bin + "/open", contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
     setenv("PATH", bin + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? ""), 1)
 
-    let loginDirs = { (try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/Library/Application Support/ClaudeAccountManager"))?.filter { $0.hasPrefix("login-") } ?? [] }
+    let loginDirs = { (try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/Library/Application Support/cam"))?.filter { $0.hasPrefix("login-") } ?? [] }
     let before = loginDirs()
-    let task = Task { try await Store(vaultService: "ClaudeAccountManager-test-\(UUID().uuidString)").addViaLogin() }
+    let task = Task { try await Store(vaultService: "cam-test-\(UUID().uuidString)").addViaLogin() }
     try await Task.sleep(for: .seconds(3))
     let start = Date()
     task.cancel()

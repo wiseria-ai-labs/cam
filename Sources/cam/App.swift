@@ -23,7 +23,7 @@ enum Main {
     }
 }
 
-/// 终端用法：`ClaudeAccountManager list` / `ClaudeAccountManager switch <邮箱|uuid 前缀>`
+/// 终端用法：`cam list` / `cam switch <邮箱|uuid 前缀>`
 func cli(_ args: [String]) async throws {
     let store = Store()
     let (live, rows) = try await store.rows()
