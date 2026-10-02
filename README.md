@@ -22,19 +22,26 @@ macOS 菜单栏小工具，用来在同一台机器上管理多个 Claude Code �
 - **自动导入**：终端里用 `claude` 正常登录的账号，打开面板时会自动收进账号库。
 - **终端命令**：`cam list` / `cam switch`，方便脚本化。
 
-## 安装与运行
+## 安装
 
-要求：macOS 14+，Xcode 15.3+（Swift 5.10+），已安装 [Claude Code](https://code.claude.com) CLI。
+要求：macOS 14+，已安装 [Claude Code](https://code.claude.com) CLI。
+
+1. 从 [Releases](https://github.com/wiseria-ai-labs/cam/releases) 下载最新的 `CAM-x.y.z.dmg`。
+2. 打开 DMG，把 `CAM.app` 拖进「应用程序」。
+3. 首次打开：当前版本已用 Developer ID 签名但**尚未公证**，macOS 会提示无法验证开发者。在「应用程序」里**右键 CAM → 打开 → 打开**即可，之后正常双击。
+   也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/CAM.app`。
+
+想开机自启，把 CAM 加到「系统设置 → 通用 → 登录项」。
+
+### 从源码构建
+
+需要 Xcode 15.3+（Swift 5.10+）。
 
 ```bash
 git clone https://github.com/wiseria-ai-labs/cam.git && cd cam
-swift build -c release
-
-# 菜单栏常驻（脱离终端运行）
-nohup .build/release/cam >/dev/null 2>&1 &
+swift run cam                  # 直接运行
+scripts/release.sh 0.1.0       # 打包签名后的 dist/CAM-0.1.0.dmg（IDENTITY 可指定签名证书）
 ```
-
-想开机自启，可以把 `.build/release/cam` 加到「系统设置 → 通用 → 登录项」。目前还没有打包成 `.app`。
 
 ## 用法
 
@@ -52,6 +59,7 @@ nohup .build/release/cam >/dev/null 2>&1 &
 ### 终端
 
 ```bash
+# 装了 app 的话，命令行就是 /Applications/CAM.app/Contents/MacOS/cam
 cam list                     # 列出账号与用量，* 为当前账号
 cam switch work@company.com  # 按邮箱切换
 cam switch 1a2b3c4d          # 或按 uuid 前缀切换
@@ -89,6 +97,12 @@ swift build
 swift test   # 使用真实钥匙串里的临时条目，结束后自动清理；登录取消测试需要本机装有 claude
 ```
 
+发版：`scripts/release.sh <版本号>` 生成 universal 的 `CAM.app` 并打成 DMG；设置 `NOTARY_PROFILE`（`xcrun notarytool store-credentials` 保存的配置名）时会自动公证并装订票据。
+
 代码只有两个文件：`Sources/cam/Store.swift`（登录态读写、账号库、用量）和 `Sources/cam/App.swift`（菜单栏界面与终端命令）。
 
 已知限制：面板没有滚动（账号很多时会过长）；app 在登录过程中崩溃会留下 `claude auth login` 进程。
+
+## License
+
+[MIT](LICENSE)
