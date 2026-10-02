@@ -18,7 +18,19 @@ struct Store {
     /// access token → 账号 uuid；测试里替换掉网络
     var whoami: (String) async -> String? = Store.profileUUID
 
-    struct Row: Identifiable { let id, email, detail: String }
+    struct Window { let pct: Double; let reset: Date? }
+
+    struct Row: Identifiable {
+        let id, email, plan: String
+        var h5, d7: Window?
+        var error: String?
+
+        var summary: String {
+            if let error { return "\(plan) · \(error)" }
+            let fmt = { (w: Window?) in w.map { "\(Int($0.pct))%" } ?? "–" }
+            return "\(plan) · 5h \(fmt(h5)) · 7d \(fmt(d7))"
+        }
+    }
 
     var credService: String {
         guard let configDir else { return "Claude Code-credentials" }
@@ -137,24 +149,33 @@ struct Store {
         let live = try await syncLive()
         var rows: [Row] = []
         for (uuid, entry) in try vault() {
-            let plan = (entry["claudeAiOauth"] as? JSON)?["subscriptionType"] as? String ?? "?"
-            let usage: String
-            do { usage = Store.describe(try await self.usage(uuid, isLive: uuid == live)) } catch { usage = error.localizedDescription }
+            let oauth = entry["claudeAiOauth"] as? JSON
             let email = (entry["oauthAccount"] as? JSON)?["emailAddress"] as? String ?? uuid
-            rows.append(Row(id: uuid, email: email, detail: "\(plan) · \(usage)"))
+            var row = Row(id: uuid, email: email, plan: Store.plan(oauth))
+            do {
+                let usage = try await self.usage(uuid, isLive: uuid == live)
+                row.h5 = Store.window(usage["five_hour"])
+                row.d7 = Store.window(usage["seven_day"])
+            } catch { row.error = error.localizedDescription }
+            rows.append(row)
         }
         return (live, rows.sorted { $0.email < $1.email })
     }
 
-    static func describe(_ usage: JSON) -> String {
-        let iso = ISO8601DateFormatter()
-        return [("five_hour", "5h"), ("seven_day", "7d")].map { key, label in
-            guard let window = usage[key] as? JSON, let pct = window["utilization"] as? Double else { return "\(label) –" }
-            guard let reset = window["resets_at"] as? String,
-                  let date = iso.date(from: reset.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression))
-            else { return "\(label) \(Int(pct))%" }
-            return "\(label) \(Int(pct))%（\(date.formatted(.dateTime.month().day().hour().minute())) 重置）"
-        }.joined(separator: " · ")
+    /// "max" + "default_claude_max_5x" → "Max 5x"
+    static func plan(_ oauth: JSON?) -> String {
+        let type = (oauth?["subscriptionType"] as? String ?? "?").capitalized
+        let tier = oauth?["rateLimitTier"] as? String ?? ""
+        guard let r = tier.range(of: #"\d+x$"#, options: .regularExpression) else { return type }
+        return "\(type) \(tier[r])"
+    }
+
+    static func window(_ raw: Any?) -> Window? {
+        guard let w = raw as? JSON, let pct = w["utilization"] as? Double else { return nil }
+        let reset = (w["resets_at"] as? String).flatMap {
+            ISO8601DateFormatter().date(from: $0.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression))
+        }
+        return Window(pct: pct, reset: reset)
     }
 
     // MARK: 网络
