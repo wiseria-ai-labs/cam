@@ -12,6 +12,9 @@ macOS 菜单栏小工具，用来在同一台机器上管理多个 Claude Code �
 
 <sub>示意图为模拟数据。</sub>
 
+> [!WARNING]
+> 本项目为非官方工具，与 Anthropic 无关，使用风险自负。作者不对账号封禁、凭据丢失等任何问题负责，详见[免责声明](#免责声明--disclaimer)。
+
 ## 功能
 
 - **账号总览**：每个账号一张卡片，显示套餐（Pro / Max 5x …）、5 小时与 7 天用量进度条和重置时间；当前账号置顶并高亮。
@@ -88,7 +91,7 @@ Claude Code 的登录态由两部分组成，CAM 就是在管理这两处：
 - **仅支持 macOS。** Linux / Windows 上 Claude Code 把凭据存成明文文件，CAM 目前没有适配。
 - **钥匙串读写走 `/usr/bin/security`**，与 Claude Code 自身做法一致，因此不会弹授权框。凭据较长时会短暂出现在 `security` 进程的参数里（hex 编码），CLI 本身也是这样处理的。
 - **账号库条目名为 `ClaudeAccountManager`** 是项目更名前的历史名字，为了保留已存账号没有改。
-- 多账号轮换使用前，请自行确认符合 Anthropic 的使用条款。
+- 多账号轮换使用前，请自行确认符合 Anthropic 的使用条款，见下方免责声明。
 
 ## 开发
 
@@ -102,6 +105,16 @@ swift test   # 使用真实钥匙串里的临时条目，结束后自动清理�
 代码只有两个文件：`Sources/cam/Store.swift`（登录态读写、账号库、用量）和 `Sources/cam/App.swift`（菜单栏界面与终端命令）。
 
 已知限制：面板没有滚动（账号很多时会过长）；app 在登录过程中崩溃会留下 `claude auth login` 进程。
+
+## 免责声明 / Disclaimer
+
+- 本项目是个人开发的非官方工具，**与 Anthropic 没有任何隶属、合作或背书关系**。「Claude」「Claude Code」是 Anthropic 的商标。
+- CAM 依赖 Claude Code 未公开的内部实现（钥匙串条目、配置文件结构、用量接口），这些随时可能变化，导致功能失效或行为异常。
+- 使用多个账号、频繁切换账号，或以其它方式使用本工具，**是否符合 [Anthropic 的使用条款](https://www.anthropic.com/legal/consumer-terms)由使用者自行判断并承担责任**。
+- **作者及贡献者不对使用本工具造成的任何后果负责**，包括但不限于：账号被限制或封禁、登录凭据丢失或失效、用量或费用异常、数据丢失。
+- 本软件按「原样」提供，不附带任何形式的担保，详见 [MIT 许可证](LICENSE)。
+
+*English:* This is an unofficial, community-built tool. It is **not affiliated with, endorsed by, or sponsored by Anthropic**; "Claude" and "Claude Code" are trademarks of Anthropic. CAM relies on undocumented internals of Claude Code that may change at any time. **You are solely responsible for ensuring your use complies with Anthropic's terms.** The authors and contributors accept **no liability** for any consequences of using this software, including but not limited to account restrictions or suspension, lost or invalidated credentials, unexpected usage or charges, or data loss. The software is provided "as is", without warranty of any kind (see [LICENSE](LICENSE)).
 
 ## License
 
