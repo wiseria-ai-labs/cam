@@ -90,12 +90,18 @@ struct Store {
         p.standardInput = FileHandle.nullDevice
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
-        // ponytail: 用户关掉浏览器时只能等超时，需要时再加取消按钮
+        // 兜底超时；用户可随时取消（Task.cancel → 结束 claude 进程）
         DispatchQueue.global().asyncAfter(deadline: .now() + 300) { if p.isRunning { p.terminate() } }
-        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-            p.terminationHandler = { _ in c.resume() }
-            do { try p.run() } catch { c.resume(throwing: error) }
+        try Task.checkCancellation()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                p.terminationHandler = { _ in c.resume() }
+                do { try p.run() } catch { c.resume(throwing: error) }
+            }
+        } onCancel: {
+            if p.isRunning { p.terminate() }
         }
+        try Task.checkCancellation()
         guard p.terminationStatus == 0 else { throw CAMError("登录未完成（claude exit \(p.terminationStatus)）") }
         guard let oauth = try Store.readItem(tmp.credService)?["claudeAiOauth"] as? JSON,
               let account = try tmp.readConfig()["oauthAccount"] as? JSON,

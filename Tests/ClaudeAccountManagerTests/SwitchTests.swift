@@ -59,3 +59,22 @@ import Testing
     #expect(try stored("B") == "B2")
     #expect(try configAccount() == "A")
 }
+
+/// 登录中途取消：应立刻结束 claude 进程并清理临时目录（需本机装有 claude；用假 open 拦住浏览器）
+@Test func cancelLoginStopsQuickly() async throws {
+    let bin = NSTemporaryDirectory() + "cam-fakebin-\(UUID().uuidString)"
+    try FileManager.default.createDirectory(atPath: bin, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(atPath: bin) }
+    FileManager.default.createFile(atPath: bin + "/open", contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+    setenv("PATH", bin + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? ""), 1)
+
+    let loginDirs = { (try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/Library/Application Support/ClaudeAccountManager"))?.filter { $0.hasPrefix("login-") } ?? [] }
+    let before = loginDirs()
+    let task = Task { try await Store(vaultService: "ClaudeAccountManager-test-\(UUID().uuidString)").addViaLogin() }
+    try await Task.sleep(for: .seconds(3))
+    let start = Date()
+    task.cancel()
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(Date().timeIntervalSince(start) < 2)
+    #expect(loginDirs() == before)
+}

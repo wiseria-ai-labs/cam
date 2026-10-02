@@ -38,14 +38,19 @@ final class Model: ObservableObject {
     /// 非 nil 时禁用所有操作，顺带把 Keychain 读写串行化
     @Published var busy: String?
     @Published var error: String?
+    /// 可取消的操作（目前只有登录）；只取消操作本身，之后的刷新照常进行
+    @Published private(set) var cancellable: Task<Void, Error>?
     let store = Store()
 
-    func run(_ label: String, _ op: @escaping () async throws -> Void = {}) {
+    func run(_ label: String, cancellable: Bool = false, _ op: @escaping () async throws -> Void = {}) {
         guard busy == nil else { return }
         busy = label
         error = nil
         Task {
-            do { try await op() } catch { self.error = error.localizedDescription }
+            let task = Task { try await op() }
+            if cancellable { self.cancellable = task }
+            do { try await task.value } catch is CancellationError {} catch { self.error = error.localizedDescription }
+            self.cancellable = nil
             do { (live, rows) = try await store.rows() } catch { self.error = error.localizedDescription }
             busy = nil
         }
@@ -96,13 +101,22 @@ struct Panel: View {
             if let error = model.error { Text(error).font(.caption).foregroundStyle(.red) }
             Text(model.busy ?? "切换后，正在运行的 claude 会话需重启才生效").font(.caption).foregroundStyle(.secondary)
             HStack {
-                Group {
-                    Button("添加账号") { model.run("等待浏览器登录（5 分钟超时）…") { _ = try await model.store.addViaLogin() } }
-                    Button("刷新") { model.run("刷新中…") }
+                if let task = model.cancellable {
+                    Button("取消登录") { task.cancel() }
+                } else {
+                    Group {
+                        Button("添加账号") {
+                            model.run("等待浏览器登录（5 分钟超时）…", cancellable: true) { _ = try await model.store.addViaLogin() }
+                        }
+                        Button("刷新") { model.run("刷新中…") }
+                    }
+                    .disabled(model.busy != nil)
                 }
-                .disabled(model.busy != nil)
                 Spacer()
-                Button("退出") { NSApp.terminate(nil) }
+                Button("退出") {
+                    model.cancellable?.cancel()  // 同步结束 claude 登录进程，否则退出后成孤儿
+                    NSApp.terminate(nil)
+                }
             }
         }
         .padding()
