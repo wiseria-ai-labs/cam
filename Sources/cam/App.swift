@@ -51,6 +51,8 @@ final class Model: ObservableObject {
     @Published var updated: Date?
     /// 卡片内展开的切换/删除确认（不用系统弹窗：菜单栏面板弹 alert 会自己收起）
     @Published var confirming: Confirm?
+    /// 底栏展开的退出确认
+    @Published var quitting = false
     /// 可取消的操作（目前只有登录）；只取消操作本身，之后的刷新照常进行
     @Published private(set) var cancellable: Task<Void, Error>?
     let store = Store()
@@ -76,8 +78,9 @@ final class Model: ObservableObject {
         }
     }
 
-    func ask(_ id: String, _ kind: ConfirmKind) { withAnimation(.snappy(duration: 0.25)) { confirming = Confirm(id: id, kind: kind) } }
-    func cancel() { withAnimation(.snappy(duration: 0.2)) { confirming = nil } }
+    func ask(_ id: String, _ kind: ConfirmKind) { withAnimation(.snappy(duration: 0.25)) { (confirming, quitting) = (Confirm(id: id, kind: kind), false) } }
+    func askQuit() { withAnimation(.snappy(duration: 0.25)) { (confirming, quitting) = (nil, true) } }
+    func cancel() { withAnimation(.snappy(duration: 0.2)) { (confirming, quitting) = (nil, false) } }
     func confirm() {
         guard let c = confirming else { return }
         let store = store
@@ -99,11 +102,26 @@ final class StatusBar: NSObject {
         let host = NSHostingController(rootView: Panel(model: model))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined  // 收起时机由下面的全局监听决定（登录期间要保持打开）
         item.button?.image = Self.icon
         item.button?.target = self
         item.button?.action = #selector(toggle)
         model.run("刷新中…")  // 启动即加载，首次打开就是完整高度
+        // 面板没打开时也定时刷新，打开就是新数据；正在确认时跳过，免得刷新把确认条收起
+        let timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
+            Task { @MainActor in if model.confirming == nil { model.run("刷新中…") } }
+        }
+        timer.tolerance = 30
+        // accessory app 的 .transient 不一定能收到失焦，所以自己监听面板外的点击。
+        // 全局监听只收到发给其他 app 的事件，面板内和菜单栏图标的点击不会进来。
+        // 等待浏览器登录时不收起，用户要去浏览器里点，面板留着显示登录状态
+        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.popover.isShown, model.cancellable == nil else { return }
+                self.popover.performClose(nil)
+                model.cancel()
+            }
+        }
     }
 
     /// 菜单栏图标，与 assets/menubar.svg 相同；内嵌在代码里，swift run 时也能用
@@ -144,9 +162,12 @@ struct Panel: View {
                 Button { model.run("刷新中…") } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless).disabled(model.busy != nil).help("刷新用量")
             }
-            ForEach(model.sorted) { row in
-                Card(row: row, model: model)
-                    .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.95))))
+            // 登录期间面板不收起，所以把账号卡片折叠，少挡一点屏幕；登录结束后恢复
+            if model.cancellable == nil {
+                ForEach(model.sorted) { row in
+                    Card(row: row, model: model)
+                        .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.95))))
+                }
             }
             if model.rows.isEmpty && model.busy == nil {
                 Text("还没有账号：在终端登录 claude 后点刷新，或点「添加账号」").font(.callout).foregroundStyle(.secondary)
@@ -155,7 +176,16 @@ struct Panel: View {
             VStack(spacing: 8) {
                 Divider()
                 HStack {
-                    if let task = model.cancellable {
+                    if model.quitting {
+                        Text(model.cancellable == nil ? "退出 CAM？" : "退出 CAM？正在进行的登录会被取消").font(.caption)
+                        Spacer()
+                        Button("取消") { model.cancel() }.controlSize(.small).keyboardShortcut(.cancelAction)
+                        Button("退出") {
+                            model.cancellable?.cancel()  // 同步结束 claude 登录进程，否则退出后成孤儿
+                            NSApp.terminate(nil)
+                        }
+                        .controlSize(.small).buttonStyle(.borderedProminent).tint(.red).keyboardShortcut(.defaultAction)
+                    } else if let task = model.cancellable {
                         ProgressView().controlSize(.small)
                         Text("等待浏览器登录…").font(.caption)
                         Button("取消登录") { task.cancel() }.controlSize(.small)
@@ -165,12 +195,11 @@ struct Panel: View {
                         } label: { Label("添加账号", systemImage: "plus") }
                         .disabled(model.busy != nil)
                     }
-                    Spacer()
-                    Button {
-                        model.cancellable?.cancel()  // 同步结束 claude 登录进程，否则退出后成孤儿
-                        NSApp.terminate(nil)
-                    } label: { Image(systemName: "power") }
-                    .buttonStyle(.borderless).help("退出")
+                    if !model.quitting {
+                        Spacer()
+                        Button { model.askQuit() } label: { Image(systemName: "power") }
+                            .buttonStyle(.borderless).help("退出")
+                    }
                 }
             }
         }
@@ -188,7 +217,6 @@ struct Card: View {
     let row: Store.Row
     @ObservedObject var model: Model
     @State private var hover = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let isLive = row.id == model.live
@@ -240,8 +268,7 @@ struct Card: View {
                 .transition(.scale(scale: 0.5).combined(with: .opacity))
             }
         }
-        .scaleEffect(hot && !reduceMotion ? 1.015 : 1)
-        .shadow(color: .black.opacity(hot ? 0.14 : 0), radius: hot ? 10 : 0, y: hot ? 4 : 0)
+        // hover 只改底色和描边：给整张卡片加 shadow/scale 会让文字离屏合成，颜色变浅发虚
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onHover { h in
             withAnimation(.easeOut(duration: 0.15)) { hover = h }
