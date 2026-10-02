@@ -100,11 +100,26 @@ final class StatusBar: NSObject {
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
         popover.behavior = .transient
-        item.button?.image = NSImage(systemSymbolName: "person.2.circle", accessibilityDescription: "CAM")
+        item.button?.image = Self.icon
         item.button?.target = self
         item.button?.action = #selector(toggle)
         model.run("刷新中…")  // 启动即加载，首次打开就是完整高度
     }
+
+    /// 菜单栏图标，与 assets/menubar.svg 相同；内嵌在代码里，swift run 时也能用
+    static let icon: NSImage = {
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20.86 13.56A9 9 0 1 1 17.79 5.11"/>
+          <path d="M17.32 2.45L17.79 5.11L15.09 5.11"/>
+          <path stroke-width="1.3" d="M12.00 10.10L12.00 7.10M12.95 10.35L14.45 7.76M13.65 11.05L16.24 9.55M13.90 12.00L16.90 12.00M13.65 12.95L16.24 14.45M12.95 13.65L14.45 16.24M12.00 13.90L12.00 16.90M11.05 13.65L9.55 16.24M10.35 12.95L7.76 14.45M10.10 12.00L7.10 12.00M10.35 11.05L7.76 9.55M11.05 10.35L9.55 7.76"/>
+        </svg>
+        """
+        let image = NSImage(data: Data(svg.utf8))!
+        image.isTemplate = true  // 跟随菜单栏深浅色
+        image.accessibilityDescription = "CAM"
+        return image
+    }()
 
     @objc func toggle() {
         guard !popover.isShown else { return popover.performClose(nil) }

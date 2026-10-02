@@ -31,8 +31,7 @@ macOS 菜单栏小工具，用来在同一台机器上管理多个 Claude Code �
 
 1. 从 [Releases](https://github.com/wiseria-ai-labs/cam/releases) 下载最新的 `CAM-x.y.z.dmg`。
 2. 打开 DMG，把 `CAM.app` 拖进「应用程序」。
-3. 首次打开：当前版本已用 Developer ID 签名但**尚未公证**，macOS 会提示无法验证开发者。在「应用程序」里**右键 CAM → 打开 → 打开**即可，之后正常双击。
-   也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/CAM.app`。
+3. 双击打开即可。CAM 已用 Developer ID 签名并经 Apple 公证。
 
 想开机自启，把 CAM 加到「系统设置 → 通用 → 登录项」。
 
@@ -43,7 +42,7 @@ macOS 菜单栏小工具，用来在同一台机器上管理多个 Claude Code �
 ```bash
 git clone https://github.com/wiseria-ai-labs/cam.git && cd cam
 swift run cam                  # 直接运行
-scripts/release.sh 0.1.0       # 打包签名后的 dist/CAM-0.1.0.dmg（IDENTITY 可指定签名证书）
+scripts/release.sh 0.1.0       # 打包签名并公证 dist/CAM-0.1.0.dmg（IDENTITY 指定证书；NOTARY_PROFILE= 跳过公证）
 ```
 
 ## 用法

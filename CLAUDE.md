@@ -8,25 +8,13 @@ CAM is a macOS menu bar app. It keeps more than one Claude Code login on one Mac
 
 | Task | Command |
 |---|---|
-| Build | `swift build` |
-| Run the menu bar app | `swift run cam` |
 | Run the CLI | `.build/debug/cam list` or `.build/debug/cam switch <email or uuid prefix>` |
-| Run all tests | `swift test` |
 | Run one test | `swift test --filter switchKeepsRotatedTokensAndMcpOAuth` |
 | Make a release DMG | `scripts/release.sh <version>` |
 
-The project has no linter.
-
-`scripts/release.sh` builds a universal app and signs it with the Developer ID of Wiseria LLC. It writes `dist/CAM-<version>.dmg`. To notarize the DMG, set `NOTARY_PROFILE` to a `notarytool` keychain profile.
+`scripts/release.sh` builds a universal app and signs it with the Developer ID of Wiseria LLC. It writes `dist/CAM-<version>.dmg`. It also notarizes the DMG with the `notarytool` keychain profile `cam-notary`. To use a different profile, set `NOTARY_PROFILE`. To skip notarization, set `NOTARY_PROFILE` to an empty value.
 
 ## Architecture
-
-The code has two files:
-
-- `Sources/cam/Store.swift` reads and writes all login state. It also gets usage data from the API.
-- `Sources/cam/App.swift` contains the entry point, the CLI, the `Model`, and the SwiftUI views.
-
-If the first argument is `list` or `switch`, the binary runs as a CLI. If not, it starts the menu bar app.
 
 ### Login state of Claude Code
 
