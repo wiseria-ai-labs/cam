@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-CAM is a macOS menu bar app. It keeps more than one Claude Code login on one Mac. It switches the active login and shows the 5-hour and 7-day usage of each account.
+CAM is a macOS menu bar app. It keeps more than one Claude Code or Kimi Code login on one Mac. It switches the active login and shows the 5-hour and 7-day usage of each account.
 
 ## Commands
 
@@ -26,6 +26,24 @@ The Claude Code login has two parts. `Store` reads and writes both parts.
 | Account profile | The `oauthAccount` field in `~/.claude.json`. |
 
 If `configDir` is set, the Keychain item name gets the suffix `-<first 8 hex chars of sha256(configDir)>`. The config file moves to `<configDir>/.claude.json`. These rules copy Claude Code 2.1.287. They are not a public API. If a new CLI version changes them, examine the CLI binary again.
+
+### Login state of Kimi Code
+
+The Kimi Code login is one file. `KimiStore` reads and writes it.
+
+| Part | Location |
+|---|---|
+| OAuth credential (`access_token` 15 min / `refresh_token` 30 days rolling) | `~/.kimi-code/credentials/kimi-code.json` (0600) |
+
+`config.toml` references it as `[providers."managed:kimi-code".oauth] storage="file" key="oauth/kimi-code"`. These rules copy Kimi Code CLI 2.1.1. They are not a public API either.
+
+- The account id is the `user_id` claim of the access-token JWT, decoded without verification. Region (`cn`/`global`) also comes from the JWT.
+- The CLI re-reads the credential file on every use and coordinates refreshes across processes with a proper-lockfile lock. CAM takes the same lock (sentinel `~/.kimi-code/oauth/kimi-code`, lock dir its `.lock`, stale 5s, 60s deadline) and re-reads the file after acquiring it. Unlike Claude, a running `kimi` session picks up a switched account within minutes — no process table needed.
+- Refresh: `POST {auth.kimi.com\|auth.kimi.ai}/api/oauth/token`, form `client_id=17e5f671-…&grant_type=refresh_token&refresh_token=…` plus the `X-Msh-*` device headers (`device_id` from `~/.kimi-code/device_id`). The server always rotates the refresh token; the whole response must be written back.
+- Quota: `GET {api.kimi.com\|api.kimi.ai}/coding/v1/usages` → `usages.limit_5h / limit_7d / limit_month_total / limit_month_code` (`used_ratio` + `reset_time`) and `booster_wallet`. Profile: `GET …/me` → `nickname`, `user_level_name`. New plans have no 7-day window; fall back to monthly.
+- Switching writes the target credential atomically. CAM keeps the lock mtime fresh every 2s while it holds the lock, like proper-lockfile's `update`; otherwise a refresh that takes more than 5s lets the CLI steal the lock.
+- Only the mainland default slot is supported. A non-default host (global `auth.kimi.ai`) uses the slot `oauth/kimi-code-<sha256[0:16]>`, so the file is `credentials/kimi-code-<hash>.json` and the lock is `oauth/kimi-code-<hash>.lock`. `addViaLogin` rejects such a login. Global support needs `credPath`/`lockPath` derived from the `config.toml` key and the host switched too.
+- Vault: Keychain item `CAMKimiAccounts`, JSON `[userId: {credential, profile}]`. Adding an account runs `kimi login` in a temporary `KIMI_CODE_HOME` with the real `device_id` and `region` marker pre-seeded; the CLI opens the browser itself and prints the device-code URL, which the UI shows if the browser did not open.
 
 ### Vault
 
@@ -57,7 +75,7 @@ When the task is cancelled, the app stops the `claude` process. The **Quit** men
 - Show the switch and delete confirmations in the account row. The row keeps the same height, so the popover does not jump. Do not use alerts. An alert can close the popover.
 - The UI does not let the user delete the active account. The next refresh imports the active account again.
 - The panel has no footer. **Refresh** and **Quit** are in the right-click menu of the status item.
-- The left rail shows one item for each agent (`Agent.all`). Only Claude Code works now. Codex and Kimi Code have `soon` set and show as placeholders. The agent logos come from simple-icons (CC0).
+- The left rail shows one item for each agent (`Agent.all`). Claude Code and Kimi Code work. Codex has `soon` set and shows as a placeholder. The agent logos come from simple-icons (CC0).
 
 ### Token usage
 
@@ -68,6 +86,10 @@ The session logs of Claude Code (`<configDir or ~/.claude>/projects/**/*.jsonl`)
 | `timeline.json` | The time of each change of the active account. |
 | `procs.json` | The `claude` processes that ran at a switch. The authentication stays with the process, so these processes use the old account until they stop. |
 | `daily.json` | The token total for each day and each account. The CLI deletes logs after 30 days, so the heat map uses this archive. |
+| `kimi-timeline.json` | Same as `timeline.json` for Kimi Code (`KimiStore` keeps its own because attribution is per agent). |
+| `kimi-daily.json` | Same archive for Kimi Code. |
+
+- Kimi Code token data comes from `usage.record` lines in `~/.kimi-code/sessions/*/*/agents/*/wire.jsonl` (`inputOther + output + inputCacheRead + inputCacheCreation`, `time` in ms). Forked sessions copy whole `wire.jsonl` files, so the dedup key is `agentId|time|tokens` without the session id.
 
 - Remove duplicate log entries by message id. One response writes many lines, and a resumed session copies old lines.
 - Overwrite a day in `daily.json` only if the new total is not less than the archived total. If the CLI deleted some logs, the new total is too small.
@@ -85,4 +107,4 @@ Before you test on the real login, make a backup of the live Keychain item.
 ## Conventions
 
 - Write code comments, UI text, and `README.md` in Simplified Chinese.
-- Keep the code in the current two source files. Add a file only when the reason is clear.
+- Keep the code in the current three source files: `Store.swift` (Claude Code), `KimiStore.swift` (Kimi Code, added when Kimi support landed), and `App.swift` (shared UI). Add a file only when the reason is clear.

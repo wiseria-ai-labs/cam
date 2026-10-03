@@ -23,31 +23,50 @@ enum Main {
     }
 }
 
-/// 终端用法：`cam list` / `cam switch <邮箱|uuid 前缀>` / `cam tokens`
+/// 两个 Agent 的每日存档合并（账号 id 空间不重叠；同号出现在两边时相加）
+func mergedDaily(_ a: [String: [String: Int]], _ b: [String: [String: Int]]) -> [String: [String: Int]] {
+    var out = a
+    for (day, m) in b { for (id, n) in m { out[day, default: [:]][id, default: 0] += n } }
+    return out
+}
+
+/// 终端用法：`cam list` / `cam switch <名称|id 前缀>` / `cam tokens`
 func cli(_ args: [String]) async throws {
     let store = Store()
-    let (live, rows) = try await store.rows()
+    let kimi = KimiStore(home: NSHomeDirectory() + "/.kimi-code")
+    let (cl, cr) = try await store.rows()
+    let (kl, kr) = try await kimi.rows()
+    let rows = cr + kr
     if args[0] == "tokens" {
-        let daily = await store.dailyTokens()
+        async let cd = store.dailyTokens()
+        async let kd = kimi.dailyTokens()
+        let daily = mergedDaily(await cd, await kd)
         let ids = Set(daily.values.flatMap(\.keys)).sorted()
         for (title, n) in [("今天", 1), ("7 天", 7), ("30 天", 30), ("一年", 365)] {
             print("\(title)  合计 \(tokenText(Store.total(daily, days: n)))")
             for id in ids {
                 let t = Store.total(daily, days: n, account: id)
-                if t > 0 { print("  \(id.isEmpty ? "未归属" : rows.first { $0.id == id }?.email ?? id)  \(tokenText(t))") }
+                if t > 0 { print("  \(id.isEmpty ? "未归属" : rows.first { $0.id == id }?.name ?? id)  \(tokenText(t))") }
             }
         }
         return
     }
     if args[0] == "list" {
-        for r in rows { print("\(r.id == live ? "*" : " ") \(r.email)  \(r.summary)  [\(r.id.prefix(8))]") }
+        for r in rows {
+            print("\(r.id == (r.agent == "kimi" ? kl : cl) ? "*" : " ") \(r.agent)  \(r.name)  \(r.summary)  [\(r.id.prefix(8))]")
+        }
         return
     }
-    guard args.count > 1, let r = rows.first(where: { $0.email == args[1] || $0.id.hasPrefix(args[1]) }) else {
+    guard args.count > 1, let r = rows.first(where: { $0.name == args[1] || $0.id.hasPrefix(args[1]) }) else {
         throw CAMError("找不到账号：\(args.dropFirst().first ?? "")")
     }
-    try await store.switchTo(r.id)
-    print("已切换到 \(r.email)，正在运行的 claude 会话需重启后生效")
+    if r.agent == "kimi" {
+        try await kimi.switchTo(r.id)
+        print("已切换到 \(r.name)，正在运行的 kimi 会话几分钟内自动生效")
+    } else {
+        try await store.switchTo(r.id)
+        print("已切换到 \(r.name)，正在运行的 claude 会话需重启后生效")
+    }
 }
 
 enum ConfirmKind { case switchTo, delete }
@@ -57,6 +76,11 @@ struct Confirm: Equatable { let id: String; let kind: ConfirmKind }
 final class Model: ObservableObject {
     @Published var rows: [Store.Row] = []
     @Published var live: String?
+    @Published var kimiLive: String?
+    /// 正在登录的 Agent，只有它的「添加账号」行显示进度
+    @Published var loginAgent: String?
+    /// kimi 设备码登录的授权链接提示（浏览器没自动打开时手动用）
+    @Published var loginHint: String?
     /// 非 nil 时禁用所有操作，顺带把 Keychain 读写串行化
     @Published var busy: String?
     @Published var error: String?
@@ -67,14 +91,19 @@ final class Model: ObservableObject {
     @Published var confirming: Confirm?
     /// 可取消的操作（目前只有登录）；只取消操作本身，之后的刷新照常进行
     @Published private(set) var cancellable: Task<Void, Error>?
-    let store = Store()
+    let claude = Store()
+    let kimi = KimiStore(home: NSHomeDirectory() + "/.kimi-code")
 
-    /// 当前账号置顶，其余按邮箱
-    var sorted: [Store.Row] { rows.sorted { ($0.id == live ? 0 : 1, $0.email) < ($1.id == live ? 0 : 1, $1.email) } }
+    func liveId(_ agent: String) -> String? { agent == "kimi" ? kimiLive : live }
 
-    /// "" 是 CAM 开始记录前的用量；已删除的账号显示 uuid 前缀
-    func name(_ id: String) -> String { id.isEmpty ? "未归属" : rows.first { $0.id == id }?.email ?? String(id.prefix(8)) }
-    /// 按邮箱顺序固定配色（rows 已按邮箱排序），切换、筛选都不变色
+    /// 某个 Agent 的账号：当前账号置顶，其余按名称
+    func sorted(_ agent: String) -> [Store.Row] {
+        rows.filter { $0.agent == agent }.sorted { ($0.id == liveId(agent) ? 0 : 1, $0.name) < ($1.id == liveId(agent) ? 0 : 1, $1.name) }
+    }
+
+    /// "" 是 CAM 开始记录前的用量；已删除的账号显示 id 前缀
+    func name(_ id: String) -> String { id.isEmpty ? "未归属" : rows.first { $0.id == id }?.name ?? String(id.prefix(8)) }
+    /// 按名称顺序固定配色（rows 已排序），切换、筛选都不变色
     // ponytail: 超过 8 个账号会重复用色，真有那么多账号再把多出的归成「其他」
     func color(_ id: String) -> Color { rows.firstIndex { $0.id == id }.map { palette[$0 % palette.count] } ?? .gray }
     func tokens(days n: Int, account: String? = nil) -> Int { Store.total(daily, days: n, account: account) }
@@ -88,13 +117,23 @@ final class Model: ObservableObject {
             if cancellable { self.cancellable = task }
             do { try await task.value } catch is CancellationError {} catch { self.error = error.localizedDescription }
             self.cancellable = nil
+            (self.loginAgent, self.loginHint) = (nil, nil)
             do {
-                let (live, rows) = try await store.rows()
-                // 切换后新账号移到第一行：ForEach 按 uuid 认行，位置变化自动做成移动动画
-                withAnimation(.snappy(duration: 0.4)) { (self.live, self.rows, confirming) = (live, rows, nil) }
+                var live: String?, kimiLive: String?, all: [Store.Row] = [], errs: [String] = []
+                // 一个 Agent 的账号库坏了不影响另一个
+                do { let (l, r) = try await claude.rows(); (live, all) = (l, r) }
+                catch { errs.append("Claude：\(error.localizedDescription)") }
+                do { let (l, r) = try await kimi.rows(); kimiLive = l; all.append(contentsOf: r) }
+                catch { errs.append("Kimi：\(error.localizedDescription)") }
+                // 切换后新账号移到第一行：ForEach 按 id 认行，位置变化自动做成移动动画
+                withAnimation(.snappy(duration: 0.4)) { (self.live, self.kimiLive, self.rows, confirming) = (live, kimiLive, all, nil) }
+                // 只追加不清空：上面切换/登录的报错要留着给用户看
+                if !errs.isEmpty { error = ([error].compactMap { $0 } + errs).joined(separator: "；") }
                 updated = Date()
-                daily = await store.dailyTokens()
-            } catch { self.error = error.localizedDescription }
+                async let cd = claude.dailyTokens()
+                async let kd = kimi.dailyTokens()
+                daily = mergedDaily(await cd, await kd)
+            }
             busy = nil
         }
     }
@@ -102,10 +141,32 @@ final class Model: ObservableObject {
     func ask(_ id: String, _ kind: ConfirmKind) { withAnimation(.snappy(duration: 0.2)) { confirming = Confirm(id: id, kind: kind) } }
     func cancel() { withAnimation(.snappy(duration: 0.2)) { confirming = nil } }
     func confirm() {
-        guard let c = confirming else { return }
-        let store = store
+        guard let c = confirming, let row = rows.first(where: { $0.id == c.id }) else { return }
+        let isKimi = row.agent == "kimi"
         run(c.kind == .delete ? "删除中…" : "切换中…") {
-            if c.kind == .delete { try store.remove(c.id) } else { try await store.switchTo(c.id) }
+            if c.kind == .delete {
+                if isKimi { try self.kimi.remove(c.id) } else { try self.claude.remove(c.id) }
+            } else if isKimi {
+                try await self.kimi.switchTo(c.id)
+            } else {
+                try await self.claude.switchTo(c.id)
+            }
+        }
+    }
+
+    /// 浏览器登录加账号；kimi 的设备码链接提示走 loginHint
+    func add(_ agent: String) {
+        guard busy == nil else { return }
+        loginAgent = agent
+        let isKimi = agent == "kimi"
+        run("等待浏览器登录…", cancellable: true) {
+            if isKimi {
+                _ = try await self.kimi.addViaLogin { url, code in
+                    Task { @MainActor in self.loginHint = code.isEmpty ? url : "\(url)（码 \(code)）" }
+                }
+            } else {
+                _ = try await self.claude.addViaLogin()
+            }
         }
     }
 }
@@ -137,7 +198,7 @@ final class StatusBar: NSObject {
         timer.tolerance = 30
         // 盯住切换前就在跑的 claude 进程，退出时间记得越准，旧账号的用量算得越准
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
-            Task { @MainActor in if model.busy == nil { model.store.reapProcs() } }
+            Task { @MainActor in if model.busy == nil { model.claude.reapProcs() } }
         }
         // accessory app 的 .transient 不一定能收到失焦，所以自己监听面板外的点击。
         // 全局监听只收到发给其他 app 的事件，面板内和菜单栏图标的点击不会进来。
@@ -192,14 +253,14 @@ final class StatusBar: NSObject {
     @objc func refresh() { model.run("刷新中…") }
 
     @objc func quit() {
-        model.cancellable?.cancel()  // 同步结束 claude 登录进程，否则退出后成孤儿
+        model.cancellable?.cancel()  // 同步结束登录进程，否则退出后成孤儿
         NSApp.terminate(nil)
     }
 }
 
 // MARK: 面板
 
-/// 侧栏里的 Agent。目前只接入了 Claude Code，其余先占位，接入后去掉 soon
+/// 侧栏里的 Agent。Claude Code 与 Kimi Code 已接入，Codex 占位
 struct Agent: Identifiable {
     let id, name, short: String
     let logo: NSImage
@@ -210,7 +271,7 @@ struct Agent: Identifiable {
     static let all = [
         Agent(id: "claude", name: "Claude Code", short: "Claude", logo: svg(claudeLogo), tint: dyn(0xD97757, 0xD97757)),
         Agent(id: "codex", name: "Codex", short: "Codex", logo: svg(openAILogo), soon: true),
-        Agent(id: "kimi", name: "Kimi Code", short: "Kimi", logo: svg(kimiLogo), soon: true),
+        Agent(id: "kimi", name: "Kimi Code", short: "Kimi", logo: svg(kimiLogo), tint: dyn(0x2D6CDF, 0x5B8DEF)),
     ]
 
     /// 品牌 logo 来自 simple-icons（CC0）：24×24 单色路径，做成模板图再着色
@@ -296,7 +357,7 @@ struct Rail: View {
             }
             .help("全部 Agent")
             ForEach(Agent.all) { a in
-                RailItem(label: a.soon ? "即将" : a.short, selected: agent == a.id, count: a.soon ? 0 : model.rows.count) { agent = a.id } icon: {
+                RailItem(label: a.soon ? "即将" : a.short, selected: agent == a.id, count: a.soon ? 0 : model.sorted(a.id).count) { agent = a.id } icon: {
                     AgentLogo(agent: a, size: 22)
                 }
                 .disabled(a.soon).opacity(a.soon ? 0.45 : 1)
@@ -411,7 +472,7 @@ struct UsagePanel: View {
                 }
             }
             if year[""] != nil {
-                Text("按 claude 进程启动时的账号归属（切换后没重启的会话仍算旧账号）；CAM 开始记录前的用量计为「未归属」")
+                Text("按各 Agent 开始记录时的账号归属统计；CAM 开始记录前的用量计为「未归属」")
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -535,14 +596,18 @@ struct AccountTable: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Text("5 小时").frame(width: Col.window, alignment: .leading)
-                Text("7 天").frame(width: Col.window, alignment: .leading)
+                // kimi 新套餐没有 7 天窗口，该列显示月度额度
+                Text(agent.id == "kimi" ? "7 天 / 月" : "7 天").frame(width: Col.window, alignment: .leading)
                 Text("今日 / 30 天").frame(width: Col.tokens, alignment: .trailing)
             }
             .font(.system(size: 10)).foregroundStyle(.secondary)
             .padding(.horizontal, 9).padding(.bottom, 2)
-            ForEach(model.sorted) { AccountRow(row: $0, model: model) }
-            if model.rows.isEmpty && model.busy == nil {
-                Text("还没有账号：在终端登录 claude 后点刷新，或点下面添加").font(.caption).foregroundStyle(.secondary)
+            ForEach(model.sorted(agent.id)) { AccountRow(row: $0, model: model) }
+            if model.sorted(agent.id).isEmpty && model.busy == nil {
+                Text(agent.id == "kimi"
+                     ? "还没有账号：在终端登录 kimi 后点刷新，或点下面添加"
+                     : "还没有账号：在终端登录 claude 后点刷新，或点下面添加")
+                    .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(8)
             }
             AddAccountRow(agent: agent, model: model)
@@ -557,7 +622,7 @@ struct AccountRow: View {
     @State private var hover = false
 
     var body: some View {
-        let isLive = row.id == model.live
+        let isLive = row.id == model.liveId(row.agent)
         let kind = model.confirming?.id == row.id ? model.confirming?.kind : nil
         let tint: Color = kind == .delete ? .red : .accentColor
         ZStack {
@@ -568,10 +633,10 @@ struct AccountRow: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             Circle().fill(model.color(row.id)).frame(width: 7, height: 7)
-                            Text(row.email).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                            Text(row.name).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
                         }
                         HStack(spacing: 6) {
-                            Badge(text: row.plan)
+                            Badge(text: row.plan.isEmpty ? " " : row.plan)
                             // 当前账号只用这行小字标出来，不加底色
                             if isLive { Label("使用中", systemImage: "checkmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(.green) }
                         }
@@ -620,16 +685,18 @@ struct AskRow: View {
     var body: some View {
         let isDelete = kind == .delete
         HStack(spacing: 8) {
-            Image(systemName: isDelete ? "trash" : "arrow.left.arrow.right").foregroundStyle(isDelete ? Color.red : Color.accentColor)
+            Image(systemName: isDelete ? "trash" : "arrow.left.arrow.right").foregroundStyle(isDelete ? Color.red : .accentColor)
             VStack(alignment: .leading, spacing: 1) {
-                Text("\(isDelete ? "删除" : "切换到") \(row.email)？").font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
-                Text(isDelete ? "移除保存的凭据，需重新登录才能加回" : "正在运行的 claude 会话需重启后生效")
+                Text("\(isDelete ? "删除" : "切换到") \(row.name)？").font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                Text(isDelete ? "移除保存的凭据，需重新登录才能加回"
+                             : row.agent == "kimi" ? "运行中的 kimi 会话几分钟内自动换到新账号"
+                                                   : "正在运行的 claude 会话需重启后生效")
                     .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
             if !isDelete {
                 Button { model.ask(row.id, .delete) } label: { Image(systemName: "trash") }
-                    .buttonStyle(.borderless).foregroundStyle(.red).help("删除这个账号").accessibilityLabel("删除 \(row.email)")
+                    .buttonStyle(.borderless).foregroundStyle(.red).help("删除这个账号").accessibilityLabel("删除 \(row.name)")
             }
             Button("取消") { model.cancel() }.keyboardShortcut(.cancelAction)
             Button {
@@ -645,7 +712,6 @@ struct AskRow: View {
 }
 
 /// 添加账号：虚线按钮，登录中原地换成进度和「取消登录」，高度不变
-// ponytail: Claude 只有浏览器登录一种方式，点了直接开始；接入有多种登录方式的 Agent 时再加「选方式」那一态
 struct AddAccountRow: View {
     let agent: Agent
     @ObservedObject var model: Model
@@ -654,9 +720,15 @@ struct AddAccountRow: View {
     var body: some View {
         let hot = hover && model.cancellable == nil && model.busy == nil
         HStack(spacing: 6) {
-            if let task = model.cancellable {
+            if let task = model.cancellable, model.loginAgent == agent.id {
                 ProgressView().controlSize(.small)
-                Text("等待浏览器登录 \(agent.name)…").foregroundStyle(.primary)
+                if agent.id == "kimi", let hint = model.loginHint {
+                    // 浏览器没自动打开：把 CLI 打印的设备码链接给用户手动用
+                    Text("浏览器没自动打开：\(hint)").foregroundStyle(.primary).lineLimit(1).truncationMode(.middle)
+                        .help(hint)
+                } else {
+                    Text("等待浏览器登录 \(agent.name)…").foregroundStyle(.primary)
+                }
                 Spacer()
                 Button("取消登录") { task.cancel() }.controlSize(.small)
             } else {
@@ -665,7 +737,7 @@ struct AddAccountRow: View {
                 Spacer()
             }
         }
-        .font(.system(size: 11.5)).foregroundStyle(hot ? Color.accentColor : Color.secondary)
+        .font(.system(size: 11.5)).foregroundStyle(hot ? Color.accentColor : .secondary)
         .padding(.leading, 10).padding(.trailing, 6)
         .frame(height: 32)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(hot ? 0.06 : 0)))
@@ -675,7 +747,7 @@ struct AddAccountRow: View {
         .onHover { hover = $0 }
         .onTapGesture {
             guard model.cancellable == nil, model.busy == nil else { return }
-            model.run("等待浏览器登录…", cancellable: true) { _ = try await model.store.addViaLogin() }
+            model.add(agent.id)
         }
         .opacity(model.busy != nil && model.cancellable == nil ? 0.5 : 1)
         .padding(.top, 4)

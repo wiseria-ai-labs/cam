@@ -22,7 +22,8 @@ struct Store {
     struct Window { let pct: Double; let reset: Date? }
 
     struct Row: Identifiable {
-        let id, email, plan: String
+        let id, name, plan: String
+        var agent = "claude"
         var h5, d7: Window?
         var error: String?
 
@@ -155,7 +156,7 @@ struct Store {
         for (uuid, entry) in try vault() {
             let oauth = entry["claudeAiOauth"] as? JSON
             let email = (entry["oauthAccount"] as? JSON)?["emailAddress"] as? String ?? uuid
-            var row = Row(id: uuid, email: email, plan: Store.plan(oauth))
+            var row = Row(id: uuid, name: email, plan: Store.plan(oauth))
             do {
                 let usage = try await self.usage(uuid, isLive: uuid == live)
                 row.h5 = Store.window(usage["five_hour"])
@@ -163,7 +164,7 @@ struct Store {
             } catch { row.error = error.localizedDescription }
             rows.append(row)
         }
-        return (live, rows.sorted { $0.email < $1.email })
+        return (live, rows.sorted { $0.name < $1.name })
     }
 
     // MARK: Token 用量
