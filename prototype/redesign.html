@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAM 交互原型 · 方案 B</title>
+<style>
+:root {
+  color-scheme: light;
+  --desk: linear-gradient(135deg, #c9d6e8 0%, #e7dccf 55%, #d9c6d6 100%);
+  --menubar: rgba(246, 246, 246, .72);
+  --pop: rgba(246, 246, 246, .86);
+  --card: rgba(0, 0, 0, .035);
+  --card-hot: rgba(0, 0, 0, .065);
+  --hair: rgba(0, 0, 0, .10);
+  --ink: #1d1d1f;
+  --ink2: #6e6e73;
+  --ink3: #a1a1a6;
+  --accent: #007aff;
+  --green: #28a745;
+  --orange: #f08c00;
+  --red: #e5383b;
+  --seg-bg: rgba(0, 0, 0, .06);
+  --seg-on: #fff;
+  --track: rgba(0, 0, 0, .08);
+  --tip: rgba(255, 255, 255, .97);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #4a3aa7;
+  /* 热力图：单色顺序色阶，0 档贴近底色 */
+  --h0: rgba(0, 0, 0, .06);
+}
+:root[data-hue="green"] { --h1: #9be9a8; --h2: #40c463; --h3: #30a14e; --h4: #216e39; }
+:root[data-hue="blue"]  { --h1: #b7d3f6; --h2: #6da7ec; --h3: #2a78d6; --h4: #184f95; }
+:root[data-hue="clay"]  { --h1: #f6d5c8; --h2: #eba287; --h3: #d97757; --h4: #a8502f; }
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --desk: linear-gradient(135deg, #1d2433 0%, #2a2230 55%, #1b1f26 100%);
+    --menubar: rgba(30, 30, 32, .72);
+    --pop: rgba(40, 40, 42, .88);
+    --card: rgba(255, 255, 255, .05);
+    --card-hot: rgba(255, 255, 255, .09);
+    --hair: rgba(255, 255, 255, .12);
+    --ink: #f5f5f7; --ink2: #a1a1a6; --ink3: #6e6e73;
+    --accent: #0a84ff; --green: #32d74b; --orange: #ff9f0a; --red: #ff453a;
+    --seg-bg: rgba(255, 255, 255, .08); --seg-on: rgba(255, 255, 255, .22);
+    --track: rgba(255, 255, 255, .12); --tip: rgba(50, 50, 52, .98);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #9085e9;
+    --h0: rgba(255, 255, 255, .07);
+  }
+  :root:where(:not([data-theme="light"]))[data-hue="green"] { --h1: #0e4429; --h2: #006d32; --h3: #26a641; --h4: #39d353; }
+  :root:where(:not([data-theme="light"]))[data-hue="blue"]  { --h1: #104281; --h2: #1c5cab; --h3: #3987e5; --h4: #86b6ef; }
+  :root:where(:not([data-theme="light"]))[data-hue="clay"]  { --h1: #5a2a19; --h2: #8f4427; --h3: #d97757; --h4: #f0b39b; }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --desk: linear-gradient(135deg, #1d2433 0%, #2a2230 55%, #1b1f26 100%);
+  --menubar: rgba(30, 30, 32, .72);
+  --pop: rgba(40, 40, 42, .88);
+  --card: rgba(255, 255, 255, .05);
+  --card-hot: rgba(255, 255, 255, .09);
+  --hair: rgba(255, 255, 255, .12);
+  --ink: #f5f5f7; --ink2: #a1a1a6; --ink3: #6e6e73;
+  --accent: #0a84ff; --green: #32d74b; --orange: #ff9f0a; --red: #ff453a;
+  --seg-bg: rgba(255, 255, 255, .08); --seg-on: rgba(255, 255, 255, .22);
+  --track: rgba(255, 255, 255, .12); --tip: rgba(50, 50, 52, .98);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #9085e9;
+  --h0: rgba(255, 255, 255, .07);
+}
+:root[data-theme="dark"][data-hue="green"] { --h1: #0e4429; --h2: #006d32; --h3: #26a641; --h4: #39d353; }
+:root[data-theme="dark"][data-hue="blue"]  { --h1: #104281; --h2: #1c5cab; --h3: #3987e5; --h4: #86b6ef; }
+:root[data-theme="dark"][data-hue="clay"]  { --h1: #5a2a19; --h2: #8f4427; --h3: #d97757; --h4: #f0b39b; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font: 13px/1.35 system-ui, -apple-system, "PingFang SC", sans-serif;
+  color: var(--ink); background: var(--desk); min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------- 原型外壳 ---------- */
+.toolbar {
+  position: sticky; top: 0; z-index: 30; display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+  padding: 10px 18px; background: var(--pop); backdrop-filter: blur(20px); border-bottom: 1px solid var(--hair);
+}
+.toolbar h1 { font-size: 13px; margin: 0 6px 0 0; }
+.toolbar label { font-size: 12px; color: var(--ink2); display: flex; gap: 8px; align-items: center; }
+.menubar {
+  height: 26px; display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 0 16px;
+  background: var(--menubar); backdrop-filter: blur(20px); font-size: 13px;
+}
+.menubar .mb-icon { width: 26px; height: 22px; display: grid; place-items: center; border-radius: 5px; background: var(--seg-bg); }
+.stage { display: flex; justify-content: flex-end; gap: 28px; padding: 6px 70px 60px 24px; align-items: flex-start; }
+.notes {
+  flex: 0 1 360px; margin-top: 18px; padding: 16px 18px; border-radius: 12px; background: var(--pop);
+  border: 1px solid var(--hair); backdrop-filter: blur(20px); font-size: 12.5px; line-height: 1.6;
+}
+.notes h2 { font-size: 15px; margin: 0 0 4px; }
+.notes h3 { font-size: 12px; margin: 14px 0 4px; color: var(--ink2); }
+.notes ul { margin: 0; padding-left: 18px; }
+.notes p { margin: 4px 0; }
+
+/* ---------- 弹出面板 ---------- */
+.pop-wrap { position: relative; padding-top: 10px; }
+.pop-wrap::before {  /* 指向菜单栏图标的小箭头 */
+  content: ""; position: absolute; top: 3px; right: 22px; width: 16px; height: 16px; transform: rotate(45deg);
+  background: var(--pop); border-left: 1px solid var(--hair); border-top: 1px solid var(--hair); backdrop-filter: blur(30px);
+}
+.pop {
+  position: relative; width: var(--w, 400px); padding: 14px; border-radius: 12px; background: var(--pop);
+  border: 1px solid var(--hair); backdrop-filter: blur(30px) saturate(1.6);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .22), 0 2px 8px rgba(0, 0, 0, .08);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.hstack { display: flex; align-items: center; gap: 6px; }
+.vstack { display: flex; flex-direction: column; gap: 8px; }
+.spacer { flex: 1; }
+.title { font-size: 14px; font-weight: 700; }
+.caption { font-size: 11px; color: var(--ink2); }
+.mini { font-size: 10px; color: var(--ink2); }
+.muted { color: var(--ink3); }
+.divider { height: 1px; background: var(--hair); }
+.icon-btn { border: 0; background: none; padding: 3px; border-radius: 5px; cursor: pointer; color: var(--ink2); display: grid; place-items: center; }
+.icon-btn:hover { background: var(--seg-bg); color: var(--ink); }
+.icon-btn:disabled { opacity: .4; cursor: default; }
+.spin { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn {
+  border: 0; border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  background: var(--seg-bg); display: inline-flex; gap: 5px; align-items: center;
+}
+.btn:hover { background: var(--card-hot); }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.danger { background: var(--red); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.seg { display: inline-flex; padding: 2px; border-radius: 7px; background: var(--seg-bg); gap: 1px; }
+.seg button {
+  border: 0; background: none; padding: 2px 9px; border-radius: 5px; font-size: 11.5px; cursor: pointer;
+  color: var(--ink2); display: inline-flex; gap: 5px; align-items: center; white-space: nowrap;
+}
+.seg button.on { background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); font-weight: 600; }
+.seg button:disabled { opacity: .45; cursor: default; }
+.seg.full { display: flex; } .seg.full button { flex: 1; justify-content: center; }
+
+.badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); white-space: nowrap; }
+.tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--seg-bg); color: var(--ink2); white-space: nowrap; }
+.live-pill { font-size: 11px; font-weight: 600; color: #fff; background: var(--green); padding: 2px 8px; border-radius: 99px; display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.agent-ic { width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; flex: none; color: #fff; font-size: 9px; font-weight: 800; }
+
+
+.panel { border-radius: 10px; padding: 12px; background: var(--card); display: flex; flex-direction: column; gap: 10px; }
+.email { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track { height: 6px; border-radius: 99px; background: var(--track); overflow: hidden; }
+.track > i { display: block; height: 100%; border-radius: 99px; min-width: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.chip { border: 0; background: none; padding: 1px 6px 1px 4px; border-radius: 5px; display: inline-flex; gap: 5px; align-items: center; font-size: 11px; color: var(--ink2); cursor: pointer; }
+.chip:hover { background: var(--seg-bg); }
+.chip.on { background: var(--seg-bg); color: var(--ink); font-weight: 600; }
+.chip.off { opacity: .45; }
+
+.heat rect.c { cursor: default; }
+.heat rect.c:hover { stroke: var(--ink); stroke-width: 1; }
+.heat text { fill: var(--ink2); font-size: 9px; }
+.heat-legend { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--ink2); }
+.heat-legend i { width: 9px; height: 9px; border-radius: 2px; display: block; }
+
+.menu {
+  position: absolute; min-width: 200px; padding: 5px; border-radius: 9px; z-index: 5;
+  background: var(--pop); border: 1px solid var(--hair); box-shadow: 0 10px 30px rgba(0, 0, 0, .25); backdrop-filter: blur(30px);
+}
+.menu button { width: 100%; border: 0; background: none; display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 5px; cursor: pointer; text-align: left; }
+.menu button:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.menu button:hover:not(:disabled) .mini { color: #fff; }
+.menu button:disabled { opacity: .5; cursor: default; }
+
+/* 方案 B：侧栏 */
+.b-body { display: grid; grid-template-columns: 52px 1fr; gap: 12px; }
+.rail { display: flex; flex-direction: column; gap: 6px; align-items: center; padding-right: 10px; border-right: 1px solid var(--hair); }
+.rail button {
+  position: relative; width: 40px; height: 40px; border-radius: 10px; border: 0; cursor: pointer; background: var(--card);
+  display: grid; place-items: center; font-size: 15px;
+}
+.rail button.on { background: var(--seg-on); box-shadow: 0 0 0 2px var(--accent); }
+.rail button:disabled { opacity: .45; cursor: default; }
+.rail .rl { font-size: 9px; color: var(--ink2); margin-top: -3px; text-align: center; }
+.rail .count { position: absolute; right: -3px; bottom: -3px; min-width: 15px; height: 15px; border-radius: 8px; background: var(--ink2); color: var(--pop); font-size: 9px; font-weight: 700; display: grid; place-items: center; padding: 0 3px; }
+.trow {
+  display: grid; grid-template-columns: minmax(0, 1.7fr) 1fr 1fr .8fr; gap: 10px; align-items: center;
+  padding: 8px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+}
+.trow:hover { background: var(--card-hot); }
+/* 当前账号：只用「✓ 使用中」小字标记，不加底色，不抢热力图和额度颜色的注意力 */
+.trow.live, .trow.live:hover { background: none; cursor: default; }
+.trow.head { cursor: default; padding-top: 0; padding-bottom: 2px; } .trow.head:hover { background: none; }
+/* 账号行固定高度：点击后在原地换成确认内容，面板高度不变 */
+.trow.acc { height: 52px; padding-top: 0; padding-bottom: 0; }
+.trow.ask { display: flex; gap: 8px; cursor: default; transition: background .15s, border-color .15s;
+  background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.trow.ask.del { background: color-mix(in srgb, var(--red) 10%, transparent); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.trow.ask > *, .add-row > * { animation: swap-in .16s ease-out; }
+@keyframes swap-in { from { opacity: 0; transform: translateY(3px); } }
+/* 切换后新账号的「使用中」在置顶动画后半段淡入 */
+.live-in { animation: live-in .5s .2s ease-out backwards; }
+@keyframes live-in { from { opacity: 0; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .live-in, .trow.ask > *, .add-row > * { animation: none; } }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.kpi { border-radius: 9px; padding: 8px 10px; background: var(--card); }
+.kpi .v { font-size: 17px; font-weight: 700; }
+
+.ctx { position: fixed; z-index: 40; }
+.ctx .kbd { margin-left: auto; color: var(--ink3); font-size: 11px; }
+.ctx hr { border: 0; height: 1px; background: var(--hair); margin: 4px 6px; }
+.mb-icon { cursor: default; }
+.mb-icon.on { background: var(--seg-on); }
+.mb-icon.quit { opacity: .3; }
+.add-row {
+  width: 100%; height: 32px; border: 1px dashed var(--hair); background: none; border-radius: 8px; padding: 0 6px 0 10px; cursor: pointer;
+  display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--ink2); margin-top: 4px;
+}
+.add-row:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.add-row:disabled { opacity: .45; cursor: default; }
+.add-row.busy { cursor: default; border-style: solid; color: var(--ink); }
+
+.placeholder { border: 1px dashed var(--hair); border-radius: 8px; padding: 9px 10px; color: var(--ink2); font-size: 11.5px; display: flex; gap: 8px; align-items: center; }
+
+/* 悬停提示 */
+.tip {
+  position: fixed; z-index: 50; pointer-events: none; min-width: 170px; max-width: 260px; padding: 8px 10px; border-radius: 8px;
+  background: var(--tip); border: 1px solid var(--hair); box-shadow: 0 8px 24px rgba(0, 0, 0, .2); font-size: 11.5px; display: none;
+}
+.tip .tr { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.tip .tr span:nth-child(2) { flex: 1; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast { font-size: 11px; color: var(--ink2); }
+</style>
+</head>
+<body>
+<div class="toolbar" id="toolbar"></div>
+<div class="menubar">
+  <span class="caption">10月3日 周六 12:08</span>
+  <span class="mb-icon" id="mbicon" title="左键：打开面板 · 右键：菜单">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20.86 13.56A9 9 0 1 1 17.79 5.11"/><path d="M17.32 2.45L17.79 5.11L15.09 5.11"/><path stroke-width="1.3" d="M12 10.1V7.1M12.95 10.35l1.5-2.59M13.65 11.05l2.59-1.5M13.9 12h3M13.65 12.95l2.59 1.5M12.95 13.65l1.5 2.59M12 13.9v3M11.05 13.65l-1.5 2.59M10.35 12.95l-2.59 1.5M10.1 12h-3M10.35 11.05l-2.59-1.5M11.05 10.35l-1.5-2.59"/></svg>
+  </span>
+</div>
+<div class="stage">
+  <aside class="notes" id="notes"></aside>
+  <div class="pop-wrap" id="popwrap"><div class="pop" id="pop"></div></div>
+</div>
+<div class="menu ctx" id="ctx" style="display:none"></div>
+<div class="tip" id="tip"></div>
+
+<script>
+// ================= 模拟数据 =================
+const DAYS = 371  // 53 周
+const TODAY = new Date(); TODAY.setHours(0, 0, 0, 0)
+const dayDate = i => new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate() - (DAYS - 1 - i))
+function rng(seed) {
+  return () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296 }
+}
+function daily(seed, scale, start = 0) {
+  const r = rng(seed)
+  return Array.from({ length: DAYS }, (_, i) => {
+    if (i < start) return 0
+    const dow = dayDate(i).getDay()
+    const busy = dow === 0 || dow === 6 ? .25 : 1
+    const phase = .55 + .45 * Math.sin(i / 19 + seed)
+    if (r() < .16) return 0
+    let v = scale * busy * phase * (.35 + r() * 1.3)
+    if (r() < .03) v *= 3
+    if (i === DAYS - 1) v *= .45  // 今天还没过完
+    return Math.round(v)
+  })
+}
+
+// 每个 Agent 自己定义：用量窗口（名称和个数可以不同）、token 明细字段、品牌色
+const AGENTS = [
+  { id: 'claude', name: 'Claude Code', short: 'Claude', glyph: '✳', color: '#d97757',
+    windows: [['h5', '5 小时'], ['d7', '7 天']],
+    logins: [{ label: '浏览器登录', hint: 'Claude Pro / Max 订阅' }],
+    parts: [['输入', .01], ['输出', .03], ['缓存写入', .12], ['缓存读取', .84]],
+    accounts: [
+      { id: 'c1', email: 'alice@example.com', plan: 'Max 20x', live: true, slot: 1, daily: daily(7, 3.2e7, 0),
+        win: { h5: [42, '14:30 重置'], d7: [68, '周二 09:00 重置'] } },
+      { id: 'c2', email: 'bob@studio.dev', plan: 'Max 5x', slot: 2, daily: daily(11, 2.1e7, 120),
+        win: { h5: [100, '13:10 恢复'], d7: [91, '周一 22:00 重置'] } },
+      { id: 'c3', email: 'carol@example.com', plan: 'Pro', slot: 3, daily: daily(23, 5e6, 40),
+        win: { h5: [12, '16:45 重置'], d7: [35, '周四 18:00 重置'] } },
+    ] },
+  { id: 'codex', name: 'Codex', short: 'Codex', glyph: '›_', color: '#636366',
+    windows: [['h5', '5 小时'], ['wk', '每周']],
+    logins: [{ label: 'ChatGPT 登录', hint: 'Plus / Pro 订阅，浏览器授权' }, { label: 'API Key', hint: '即将支持', soon: true }],
+    parts: [['输入', .06], ['缓存输入', .86], ['输出', .03], ['推理', .05]],
+    accounts: [
+      { id: 'x1', email: 'alice@example.com', plan: 'Plus', live: true, slot: 4, daily: daily(31, 1.4e7, 200),
+        win: { h5: [23, '15:20 重置'], wk: [81, '周三 10:00 重置'] } },
+      { id: 'x2', email: 'dave@company.com', plan: 'Pro', slot: 5, daily: daily(47, 7e6, 300),
+        win: { h5: [0, '未开始'], wk: [5, '周五 08:00 重置'] } },
+    ] },
+  { id: 'kimi', name: 'Kimi Code', short: 'Kimi', glyph: 'K', color: '#6b5cf6', soon: true, windows: [], parts: [], logins: [], accounts: [] },
+]
+
+// ================= 状态 =================
+const S = {
+  agent: 'all', focus: null, confirm: null, adding: null, login: null,
+  busy: null, toast: '', updated: new Date(), open: true, ctx: false, quit: false,
+}
+const all = () => AGENTS.flatMap(g => g.accounts.map(a => Object.assign(a, { agent: g })))
+const agentOf = id => AGENTS.find(g => g.id === id)
+const scope = () => S.agent === 'all' ? all() : agentOf(S.agent).accounts.map(a => Object.assign(a, { agent: agentOf(S.agent) }))
+const sumN = (a, n) => { let s = 0; for (let i = DAYS - n; i < DAYS; i++) s += a.daily[i]; return s }
+const total = (list, n) => list.reduce((s, a) => s + sumN(a, n), 0)
+const fmt = n => new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumSignificantDigits: 3 }).format(n)
+const pctLevel = p => p >= 90 ? 'var(--red)' : p >= 70 ? 'var(--orange)' : 'var(--green)'
+const slot = a => `var(--s${a.slot})`
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+// ================= 小组件 =================
+const icon = {
+  refresh: (spin) => `<svg class="${spin ? 'spin' : ''}" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M12.2 1.8v2.6H9.6"/></svg>`,
+  plus: `<svg width="11" height="11" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2.5v11M2.5 8h11"/></svg>`,
+  swap: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5h10l-2.5-2.5M13.5 10.5h-10l2.5 2.5"/></svg>`,
+  check: `<svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>`,
+  trash: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></svg>`,
+}
+const agentIc = (g, size = 16) => `<span class="agent-ic" style="width:${size}px;height:${size}px;background:${g.color};font-size:${size * .56}px">${g.glyph}</span>`
+const seg = (act, opts, value) => `<div class="seg">${opts.map(o =>
+  `<button data-act="${act}" data-v="${o.v}" class="${String(o.v) === String(value) ? 'on' : ''}">${o.label}</button>`).join('')}</div>`
+
+function legend(list, n, showAgent) {
+  const t = total(list, n) || 1
+  return `<div class="legend">${list.map(a => `<button class="chip ${S.focus === a.id ? 'on' : S.focus ? 'off' : ''}" data-act="focus" data-v="${a.id}" title="点击只看这个账号">
+    <span class="dot" style="background:${slot(a)}"></span>${showAgent ? `<span class="muted">${a.agent.short}</span>` : ''}${esc(a.email.split('@')[0])}
+    <b class="num" style="color:var(--ink)">${Math.round(sumN(a, n) / t * 100)}%</b></button>`).join('')}</div>`
+}
+
+// ---- 热力图：列 = 周（周一在上），单色顺序色阶，分 4 档（按非零值的四分位）----
+const HEAT = {}
+function heat(id, list, { weeks = 53, cell = 6.8, gap = 1.6 } = {}) {
+  HEAT[id] = list
+  const t = i => list.reduce((s, a) => s + a.daily[i], 0)
+  const last = DAYS - 1, dowToday = (dayDate(last).getDay() + 6) % 7
+  const firstCol = last - dowToday - (weeks - 1) * 7
+  const nz = []
+  for (let i = Math.max(0, firstCol); i <= last; i++) if (t(i) > 0) nz.push(t(i))
+  nz.sort((a, b) => a - b)
+  const q = f => nz[Math.floor(f * (nz.length - 1))] || 0
+  const cut = [q(.25), q(.5), q(.75)]
+  const lvl = v => v <= 0 ? 0 : v <= cut[0] ? 1 : v <= cut[1] ? 2 : v <= cut[2] ? 3 : 4
+  const L = 16, T = 13, step = cell + gap
+  let s = '', lastMonth = -1, lastX = -99
+  for (let w = 0; w < weeks; w++) {
+    const colStart = firstCol + w * 7
+    const d = dayDate(Math.max(colStart, 0))
+    if (d.getMonth() !== lastMonth) {
+      const x = L + w * step
+      if (x - lastX > 26 && w < weeks - 1) { s += `<text x="${x}" y="9">${d.getMonth() + 1}月</text>`; lastX = x }
+      lastMonth = d.getMonth()
+    }
+    for (let r = 0; r < 7; r++) {
+      const i = colStart + r
+      if (i < 0 || i > last) continue
+      s += `<rect class="c" data-h="${id}" data-i="${i}" x="${L + w * step}" y="${T + r * step}" width="${cell}" height="${cell}" rx="1.5" fill="var(--h${lvl(t(i))})"/>`
+    }
+  }
+  ;['一', '三', '五'].forEach((d, k) => s += `<text x="0" y="${T + (k * 2) * step + cell - 1}">${d}</text>`)
+  return `<svg class="heat" width="${L + weeks * step - gap}" height="${T + 7 * step - gap}" role="img" aria-label="近一年每日 token 热力图">${s}</svg>`
+}
+const heatLegend = () => `<span class="heat-legend">少 ${[0, 1, 2, 3, 4].map(l => `<i style="background:var(--h${l})"></i>`).join('')} 多</span>`
+
+// 确认态：同一行原地换内容，高度不变
+function askRow(a) {
+  const del = S.confirm.kind === 'delete'
+  return `<div class="trow acc ask ${del ? 'del' : ''}" data-id="${a.id}" data-stop>
+    <span style="color:${del ? 'var(--red)' : 'var(--accent)'};display:grid">${del ? icon.trash : icon.swap}</span>
+    <div style="flex:1;min-width:0"><div class="email" style="font-size:12px">${del ? '删除' : '切换到'} ${esc(a.email)}？</div>
+      <div class="mini" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${del ? '移除保存的凭据，需重新登录才能加回' : `运行中的 ${a.agent.short} 会话需重启后生效`}</div></div>
+    ${del ? '' : `<button class="icon-btn" data-act="askDel" data-v="${a.id}" title="删除这个账号" style="color:var(--red)">${icon.trash}</button>`}
+    <button class="btn" data-act="cancel">取消</button>
+    <button class="btn ${del ? 'danger' : 'primary'}" data-act="confirm" ${S.busy ? 'disabled' : ''}>${S.busy ? (del ? '删除中…' : '切换中…') : del ? '删除' : '切换'}</button></div>`
+}
+
+// 添加账号：放在各 Agent 分组的末尾，三种状态都在这一行里原地切换。登录方式由 Agent 定义，只有一种就直接开始，多种先选
+function addRow(g) {
+  if (S.login === g.id) return `<div class="add-row busy"><span class="spin" style="display:inline-grid">${icon.refresh(false)}</span>
+    等待浏览器登录 ${g.name}…<span class="spacer"></span><button class="btn" data-act="cancelLogin">取消登录</button></div>`
+  if (S.adding === g.id) return `<div class="add-row busy" data-stop><span class="mini">登录方式</span>
+    ${g.logins.map((o, k) => `<button class="btn" data-act="login" data-v="${g.id}:${k}" ${o.soon ? 'disabled' : ''} title="${o.hint}">${o.label}${o.soon ? ' · 即将' : ''}</button>`).join('')}
+    <span class="spacer"></span><button class="btn" data-act="cancelAdd">取消</button></div>`
+  return `<button class="add-row" data-act="adding" data-v="${g.id}" ${S.busy || S.login ? 'disabled' : ''}>${icon.plus}添加 ${g.name} 账号</button>`
+}
+
+function header() {
+  const status = S.toast || (S.busy === 'refresh' ? '刷新中…' : '更新于 ' + S.updated.toTimeString().slice(0, 5))
+  return `<div class="hstack"><span class="title">CAM</span><span class="spacer"></span>
+    <span class="caption">${status}</span>
+    <button class="icon-btn" data-act="refresh" title="刷新" ${S.busy ? 'disabled' : ''}>${icon.refresh(S.busy === 'refresh')}</button></div>`
+}
+
+// ================= 面板：Agent 侧栏 + 表格 =================
+function view() {
+  const g = S.agent === 'all' ? null : agentOf(S.agent), list = scope()
+  const rail = `<div class="rail">
+    <button class="${!g ? 'on' : ''}" data-act="agent" data-v="all" title="全部 Agent">Σ</button><div class="rl">全部</div>
+    ${AGENTS.map(x => `<button class="${g === x ? 'on' : ''}" data-act="agent" data-v="${x.id}" ${x.soon ? 'disabled' : ''} title="${x.name}${x.soon ? '（即将支持）' : ''}">
+      ${agentIc(x, 24)}${x.accounts.length ? `<span class="count">${x.accounts.length}</span>` : ''}</button><div class="rl">${x.soon ? '即将' : x.short}</div>`).join('')}</div>`
+  const focus = list.find(a => a.id === S.focus)
+  const kpis = `<div class="kpis">${[[1, '今天'], [7, '近 7 天'], [30, '近 30 天']].map(([n, l]) =>
+    `<div class="kpi"><div class="mini">${l}</div><div class="v num">${fmt(total(focus ? [focus] : list, n))}</div><div class="mini">tokens</div></div>`).join('')}</div>`
+  const heatBlock = `<div class="panel" style="padding:10px 12px">
+    <div class="hstack"><span class="caption">${focus ? esc(focus.email) : g ? g.name : '全部 Agent'} · 近一年</span><span class="spacer"></span>${heatLegend()}</div>
+    ${heat('B', focus ? [focus] : list)}
+    ${legend(list, 365, !g)}</div>`
+  const tables = (g ? [g] : AGENTS.filter(x => !x.soon)).map(x => {
+    const accs = x.accounts.map(a => Object.assign(a, { agent: x })).sort((a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0))
+    return `<div class="vstack" style="gap:2px">
+      <div class="trow head mini">${g ? '<span>账号</span>' : `<span class="hstack">${agentIc(x, 13)}<b style="color:var(--ink);font-size:11.5px">${x.name}</b></span>`}
+        ${x.windows.map(([, l]) => `<span>${l}</span>`).join('')}<span style="text-align:right">今日 / 30 天</span></div>
+      ${accs.map(a => S.confirm?.id === a.id ? askRow(a) : `<div class="trow acc ${a.live ? 'live' : ''}" data-id="${a.id}" ${a.live ? '' : `data-act="ask" data-v="${a.id}"`} title="${a.live ? '当前正在使用' : '点击切换'}">
+        <div style="min-width:0"><div class="hstack"><span class="dot" style="background:${slot(a)}"></span><span class="email" style="font-size:12px">${esc(a.email)}</span></div>
+          <div class="hstack" style="margin:3px 0 0 13px"><span class="badge">${a.plan}</span>${a.live ? `<span class="mini hstack ${S.justSwitched === a.id ? 'live-in' : ''}" style="gap:3px;color:var(--green);font-weight:600">${icon.check}使用中</span>` : ''}</div></div>
+        ${x.windows.map(([k]) => { const [p, reset] = a.win[k]; return `<div style="min-width:0"><b class="num" style="font-size:11.5px;color:${pctLevel(p)}">${p}%</b>
+          <div class="track" style="height:4px;margin-top:3px"><i style="width:${Math.min(p, 100)}%;background:${pctLevel(p)}"></i></div>
+          <div class="mini num" style="margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${p >= 100 ? 'color:var(--red)' : ''}">${reset}</div></div>` }).join('')}
+        <div class="num" style="text-align:right;font-size:12px"><b>${fmt(sumN(a, 1))}</b><div class="mini">${fmt(sumN(a, 30))}</div></div>
+      </div>`).join('')}
+      ${addRow(x)}</div>`
+  }).join('<div class="divider"></div>')
+  return header() + `<div class="b-body">${rail}<div class="vstack" style="gap:10px;min-width:0">${kpis}${heatBlock}${tables}
+    ${!g ? `<div class="placeholder">${agentIc(agentOf('kimi'))}Kimi Code 即将支持：接入后出现在左侧导轨</div>` : ''}</div></div>`
+}
+
+// ================= 说明 =================
+const NOTES = `<h2>方案 B · 侧栏导轨 + 表格</h2>
+  <p>左边是 Agent 导轨，右边是所选 Agent 的 KPI、全年热力图和账号表。「Σ 全部」把所有 Agent 的账号分段列出。</p>
+  <h3>这一版的改动</h3><ul>
+    <li><b>添加账号</b>：每个 Agent 分组末尾各有一个「＋ 添加 X 账号」。登录方式由 Agent 定义：只有一种的（Claude）直接开始登录；有多种的（Codex：ChatGPT 登录 / API Key）先选。选择方式和等待登录也都在这一行里，高度不变</li>
+    <li><b>底栏删掉</b>：退出按钮也去掉了</li>
+    <li><b>退出</b>：右键菜单栏图标 → 退出 CAM。左键照常开关面板</li>
+    <li><b>点账号行</b>：不再展开横幅，这一行原地变成确认状态，高度固定、面板不跳动。回车确认，Esc 或点别处取消</li>
+    <li>删除账号：确认状态里点 🗑，同一行变成红色的删除确认</li></ul>
+  <h3>交互</h3><ul>
+    <li>导轨图标右下角是账号数，Agent 多了只是导轨变长</li>
+    <li>热力图下的图例可以点，聚焦单个账号，KPI 跟着变</li>
+    <li>额度进度条下方直接显示重置时间（今天只写时刻，其他日子带星期）；额度用尽时变红，写「几点恢复」</li>
+    <li>悬停热力图格子看当天明细</li>
+    <li>点外面空白处收起面板（等待登录时不收）</li></ul>
+  <h3>实现前提</h3><ul>
+    <li><b>热力图数据</b>：Claude Code 默认只保留 30 天会话日志。要画一年，CAM 需要每天把汇总存档到本地</li>
+    <li><b>Agent 接口</b>：每个 Agent 定义名称和图标、额度窗口、token 明细字段、登录方式列表。界面只按这些定义渲染</li>
+    <li>每个 Agent 各有一个「使用中」账号，切换只影响该 Agent</li>
+    <li>数据为模拟，邮箱均为示例</li></ul>`
+
+// ================= 渲染与事件 =================
+function render() {
+  document.getElementById('toolbar').innerHTML = `<h1>CAM 原型 · 方案 B</h1>
+    <label>外观 ${seg('theme', [{ v: 'system', label: '跟随系统' }, { v: 'light', label: '浅色' }, { v: 'dark', label: '深色' }], document.documentElement.dataset.theme || 'system')}</label>
+    <label>热力图配色 ${seg('hue', [{ v: 'green', label: '绿' }, { v: 'blue', label: '蓝' }, { v: 'clay', label: '陶土' }], document.documentElement.dataset.hue)}</label>`
+  document.getElementById('notes').innerHTML = NOTES
+  document.getElementById('popwrap').style.visibility = S.open ? 'visible' : 'hidden'
+  const pop = document.getElementById('pop')
+  pop.style.setProperty('--w', '580px')
+  const before = new Map([...pop.querySelectorAll('[data-id]')].map(el => [el.dataset.id, el.getBoundingClientRect().top]))
+  pop.innerHTML = view()
+  pop.querySelectorAll('[data-id]').forEach(el => {
+    const dy = before.get(el.dataset.id) - el.getBoundingClientRect().top
+    if (!dy || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    el.style.position = 'relative'; el.style.zIndex = dy > 0 ? 2 : 1  // 往上走的那行（新的当前账号）浮在上面
+    el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2, .8, .2, 1)' })
+      .onfinish = () => { el.style.zIndex = '' }
+  })
+  const mb = document.getElementById('mbicon')
+  mb.className = 'mb-icon' + (S.open || S.ctx ? ' on' : '') + (S.quit ? ' quit' : '')
+  mb.title = S.quit ? 'CAM 已退出，点击重新打开（原型）' : '左键：打开面板 · 右键：菜单'
+  const ctx = document.getElementById('ctx')
+  ctx.style.display = S.ctx ? 'block' : 'none'
+  const r = mb.getBoundingClientRect()
+  ctx.style.top = r.bottom + 3 + 'px'; ctx.style.right = innerWidth - r.right + 'px'
+  ctx.innerHTML = `<button data-act="ctxRefresh">刷新用量</button><hr><button data-act="quit">退出 CAM<span class="kbd">⌘Q</span></button>`
+}
+
+const later = (ms, f) => setTimeout(() => { f(); render() }, ms)
+const flash = msg => { S.toast = msg; later(3000, () => S.toast = '') }
+const startLogin = id => {
+  S.adding = null; S.login = id
+  S.loginTimer = later(2500, () => {
+    const g = agentOf(id), k = g.accounts.length + 1
+    g.accounts.push({ id: id + Date.now(), email: `new${k}@example.com`, plan: id === 'codex' ? 'Plus' : 'Pro', slot: 6,
+      daily: daily(Date.now() % 1000, 0, DAYS - 1), win: Object.fromEntries(g.windows.map(([w]) => [w, [0, '未开始']])) })
+    S.login = null; flash(`已添加 ${g.name} 账号`)
+  })
+}
+const ACT = {
+  theme: v => { v === 'system' ? delete document.documentElement.dataset.theme : document.documentElement.dataset.theme = v },
+  hue: v => document.documentElement.dataset.hue = v,
+  agent: v => { S.agent = v; S.focus = S.confirm = S.adding = null },
+  focus: v => S.focus = S.focus === v ? null : v,
+  ask: v => { if (!S.busy) { S.confirm = { id: v, kind: 'switch' }; S.adding = null } },
+  askDel: v => { if (!S.busy) S.confirm = { id: v, kind: 'delete' } },
+  cancel: () => S.confirm = null,
+  confirm: () => {
+    const c = S.confirm, a = all().find(x => x.id === c.id)
+    S.busy = 'op'
+    later(650, () => {
+      if (c.kind === 'delete') { a.agent.accounts.splice(a.agent.accounts.indexOf(a), 1); flash(`已删除 ${a.email}`) }
+      else {
+        a.agent.accounts.forEach(x => x.live = x === a); flash(`已切换 ${a.agent.short} → ${a.email}`)
+        S.justSwitched = a.id; setTimeout(() => S.justSwitched = null, 800)
+      }
+      S.busy = S.confirm = null; S.updated = new Date()
+    })
+  },
+  refresh: () => { S.busy = 'refresh'; later(900, () => { S.busy = null; S.updated = new Date() }) },
+  adding: v => { S.confirm = null; agentOf(v).logins.length === 1 ? startLogin(v) : S.adding = v },
+  login: v => startLogin(v.split(':')[0]),
+  cancelAdd: () => S.adding = null,
+  cancelLogin: () => { clearTimeout(S.loginTimer); S.login = null },
+  ctxRefresh: () => { S.ctx = false; S.open = true; ACT.refresh() },
+  quit: () => { clearTimeout(S.loginTimer); Object.assign(S, { ctx: false, open: false, quit: true, login: null }) },
+}
+
+const mb = document.getElementById('mbicon')
+mb.addEventListener('click', e => {
+  e.stopPropagation()
+  if (S.quit) Object.assign(S, { quit: false, open: true })
+  else { S.open = !S.open; S.ctx = false }
+  render()
+})
+mb.addEventListener('contextmenu', e => {
+  e.preventDefault(); e.stopPropagation()
+  if (!S.quit) Object.assign(S, { ctx: !S.ctx, open: false, confirm: null })
+  render()
+})
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]')
+  if (el) { if (!el.disabled) { ACT[el.dataset.act]?.(el.dataset.v, el); render() } return }
+  if (e.target.closest('[data-stop]')) return
+  const inPop = e.target.closest('#pop'), inChrome = e.target.closest('.toolbar, .notes')
+  S.confirm = S.adding = null
+  S.ctx = false
+  if (!inPop && !inChrome && !S.login) S.open = false  // 和真实 App 一样：点面板外收起，等待登录时不收
+  render()
+})
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { S.confirm = S.adding = null; S.ctx = false; render() }
+  if (e.key === 'Enter' && S.confirm && !S.busy) { ACT.confirm(); render() }
+})
+
+// 热力图悬停：当天合计 + 各账号明细
+const tip = document.getElementById('tip')
+document.addEventListener('mousemove', e => {
+  const r = e.target.closest?.('rect[data-h]')
+  if (!r) return tip.style.display = 'none'
+  const i = +r.dataset.i, list = HEAT[r.dataset.h], d = dayDate(i)
+  const rows = list.map(a => [a, a.daily[i]]).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1])
+  const t = rows.reduce((s, [, v]) => s + v, 0)
+  const multi = new Set(list.map(x => x.agent)).size > 1
+  tip.innerHTML = `<div class="hstack"><b>${d.getMonth() + 1}月${d.getDate()}日 周${'日一二三四五六'[d.getDay()]}</b><span class="spacer"></span><b class="num">${t ? fmt(t) : '无用量'}</b></div>
+    ${rows.slice(0, 5).map(([a, v]) => `<div class="tr"><span class="dot" style="background:${slot(a)}"></span><span>${multi ? a.agent.short + ' · ' : ''}${esc(a.email)}</span><span class="num">${fmt(v)}</span></div>`).join('')}
+    ${rows.length > 5 ? `<div class="mini" style="margin-top:3px">还有 ${rows.length - 5} 个账号</div>` : ''}`
+  tip.style.display = 'block'
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px'
+  tip.style.top = (e.clientY + 16) + 'px'
+})
+
+document.documentElement.dataset.hue = 'blue'
+render()
+</script>
+</body>
+</html>
