@@ -68,7 +68,7 @@ struct Store {
     }
 
     func switchTo(_ uuid: String) async throws {
-        try await syncLive()  // 先存回当前账号最新的 token，否则存档里的 refresh token 会失效
+        let old = try await syncLive()  // 先存回当前账号最新的 token，否则存档里的 refresh token 会失效
         guard let target = try vault()[uuid] else { throw CAMError("账号不存在：\(uuid)") }
         var creds = try Store.readItem(credService) ?? [:]
         creds["claudeAiOauth"] = target["claudeAiOauth"]  // mcpOAuth 等其它字段原样保留
@@ -76,6 +76,8 @@ struct Store {
         var config = try readConfig()
         config["oauthAccount"] = target["oauthAccount"]
         try writeConfig(config)
+        markLive(uuid)
+        if let old, old != uuid { markOldProcs(old) }
     }
 
     func remove(_ uuid: String) throws {
@@ -148,6 +150,7 @@ struct Store {
 
     func rows() async throws -> (live: String?, rows: [Row]) {
         let live = try await syncLive()
+        if let live { markLive(live) }
         var rows: [Row] = []
         for (uuid, entry) in try vault() {
             let oauth = entry["claudeAiOauth"] as? JSON
@@ -161,6 +164,163 @@ struct Store {
             rows.append(row)
         }
         return (live, rows.sorted { $0.email < $1.email })
+    }
+
+    // MARK: Token 用量
+
+    /// 一次 API 响应的 token 数（输入 + 输出 + 缓存读写）；account = 写这条日志的进程所用的账号，CAM 开始记录前的为 nil
+    struct TokenUse {
+        let time: Date
+        let session: String
+        var account: String?
+        let tokens: Int
+    }
+
+    var claudeDir: String { configDir ?? NSHomeDirectory() + "/.claude" }
+
+    /// 本 app 自己的记录文件；跟着 configDir 走，测试里落在临时目录
+    func camFile(_ name: String) -> String {
+        configDir.map { "\($0)/cam-\(name)" } ?? NSHomeDirectory() + "/Library/Application Support/cam/\(name)"
+    }
+    func load(_ path: String) -> Any? { FileManager.default.contents(atPath: path).flatMap { try? JSONSerialization.jsonObject(with: $0) } }
+    func save(_ path: String, _ obj: Any) {
+        try? FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: path, contents: try? JSONSerialization.data(withJSONObject: obj))
+    }
+
+    /// 当前账号的变化记录 [[秒, uuid]]：会话日志里没有账号信息，只能按时间对上
+    var timelinePath: String { camFile("timeline.json") }
+
+    func timeline() -> [(t: Double, id: String)] {
+        (load(timelinePath) as? [[Any]] ?? []).compactMap { e in (e.first as? Double).flatMap { t in (e.last as? String).map { (t, $0) } } }
+    }
+
+    // ponytail: 只在切换和定时刷新（5 分钟）时记录，终端里 /login 换号最多晚 5 分钟才记上，也不记旧进程
+    func markLive(_ uuid: String) {
+        var list = timeline()
+        guard list.last?.id != uuid else { return }
+        list.append((Date().timeIntervalSince1970, uuid))
+        save(timelinePath, list.map { [$0.t, $0.id] })
+    }
+
+    /// 切换后还在跑的 claude 进程：[{pid, start, account, sessions, from, end}]。
+    /// 鉴权跟着进程走：没重启的进程继续用旧账号，重启后（哪怕续接同一个会话）才用新账号
+    var procsPath: String { camFile("procs.json") }
+    func procs() -> [JSON] { load(procsPath) as? [JSON] ?? [] }
+    /// 进程结束 31 天后就不会再影响统计（新数据只来自 30 天内的日志），清掉
+    func saveProcs(_ list: [JSON]) { save(procsPath, list.filter { ($0["end"] as? Double ?? .infinity) > Date().timeIntervalSince1970 - 31 * 86400 }) }
+
+    /// 正在运行的 claude 进程：CLI 在 <claudeDir>/sessions/<pid>.json 里记着 pid、启动时间和当前 sessionId，退出时删掉
+    func liveSessions() -> [(pid: Int, start: Double, session: String)] {
+        let dir = claudeDir + "/sessions"
+        return ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).compactMap { name in
+            guard name.hasSuffix(".json"), let data = FileManager.default.contents(atPath: dir + "/" + name),
+                  let s = try? JSONSerialization.jsonObject(with: data) as? JSON,
+                  let pid = s["pid"] as? Int, let start = s["startedAt"] as? Double, let session = s["sessionId"] as? String,
+                  kill(pid_t(pid), 0) == 0 else { return nil }  // 进程崩溃时文件可能残留
+            return (pid, start, session)
+        }
+    }
+
+    /// 切换账号时记下还在跑的进程，它们之后的用量仍算旧账号。之前切换时已记过的进程保持原账号
+    func markOldProcs(_ account: String) {
+        var list = procs()
+        let now = Date().timeIntervalSince1970
+        for s in liveSessions() where !list.contains(where: { $0["pid"] as? Int == s.pid && $0["start"] as? Double == s.start }) {
+            list.append(["pid": s.pid, "start": s.start, "account": account, "sessions": [s.session], "from": now])
+        }
+        saveProcs(list)
+    }
+
+    /// App 每隔几秒调一次：退出的旧进程记下结束时间；还在跑的补上新 sessionId（进程内 /resume、/clear 会换会话）
+    // ponytail: 只有 App 开着时才检查；`cam switch` 后没开 App，旧进程的结束时间会记晚，多算给旧账号
+    func reapProcs() {
+        var list = procs(), changed = false
+        guard list.contains(where: { $0["end"] == nil }) else { return }
+        let live = liveSessions()
+        for i in list.indices where list[i]["end"] == nil {
+            if let s = live.first(where: { $0.pid == list[i]["pid"] as? Int && $0.start == list[i]["start"] as? Double }) {
+                var ids = list[i]["sessions"] as? [String] ?? []
+                if !ids.contains(s.session) { ids.append(s.session); list[i]["sessions"] = ids; changed = true }
+            } else {
+                list[i]["end"] = Date().timeIntervalSince1970
+                changed = true
+            }
+        }
+        if changed { saveProcs(list) }
+    }
+
+    /// 扫 <claudeDir>/projects 下的会话日志（含子 agent）。同一响应按内容块重复记多行、续接的会话会复制历史，所以按 message id 去重。
+    /// 归属：会话属于某个旧进程、且在它运行期间 → 旧进程的账号；否则按当时在用的账号
+    func tokenUsage(days: Int) async -> [TokenUse] {
+        let since = Date().addingTimeInterval(-Double(days) * 86400)
+        let sinceText = ISO8601DateFormatter().string(from: since)  // 日志时间都是 UTC「Z」，先比字符串筛掉旧行
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let marks = timeline()
+        let olds = procs().map { p in
+            (account: p["account"] as? String, sessions: Set(p["sessions"] as? [String] ?? []),
+             from: p["from"] as? Double ?? .infinity, end: p["end"] as? Double ?? .infinity)
+        }
+        let key = Data("\"usage\"".utf8)
+        let files = FileManager.default.enumerator(at: URL(fileURLWithPath: claudeDir + "/projects"),
+                                                   includingPropertiesForKeys: [.contentModificationDateKey])?.allObjects as? [URL] ?? []
+        var seen = Set<String>(), out: [TokenUse] = []
+        for url in files where url.pathExtension == "jsonl" {
+            guard let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, mtime >= since else { continue }
+            if Store.parsed[url.path]?.mtime != mtime, let data = try? Data(contentsOf: url) {
+                var lines: [(id: String, use: TokenUse)] = []
+                for line in data.split(separator: 10) where line.range(of: key) != nil {
+                    guard let e = try? JSONSerialization.jsonObject(with: line) as? JSON,
+                          let ts = e["timestamp"] as? String, ts >= sinceText, let time = iso.date(from: ts),
+                          let m = e["message"] as? JSON, let u = m["usage"] as? JSON else { continue }
+                    lines.append(("\(m["id"] ?? e["uuid"] ?? ts)|\(e["requestId"] ?? "")",
+                                  TokenUse(time: time, session: e["sessionId"] as? String ?? "", account: nil,
+                                           tokens: ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+                                               .reduce(0) { $0 + (u[$1] as? Int ?? 0) })))
+                }
+                Store.parsed[url.path] = (mtime, lines)
+            }
+            for (id, var use) in Store.parsed[url.path]?.lines ?? [] where use.time >= since && seen.insert(id).inserted {
+                let t = use.time.timeIntervalSince1970
+                use.account = olds.first { $0.sessions.contains(use.session) && $0.from <= t && t < $0.end }?.account
+                    ?? marks.last { $0.t <= t }?.id
+                out.append(use)
+            }
+        }
+        return out
+    }
+
+    /// 解析过的日志按 (路径, 修改时间) 缓存，定时刷新时只重扫还在写的会话
+    // ponytail: 不加锁，调用方（Model.run 的 busy / CLI）本来就是串行的；缓存只增不减，App 常驻几个月才需要清理
+    nonisolated(unsafe) static var parsed: [String: (mtime: Date, lines: [(id: String, use: TokenUse)])] = [:]
+
+    /// 每日 token 合计 [日期 yyyy-MM-dd: [账号 uuid（"" = 未归属）: tokens]]。
+    /// CLI 默认 30 天后删会话日志，所以结果合并进本地存档，热力图才能画满一年
+    var dailyPath: String { camFile("daily.json") }
+
+    func dailyTokens() async -> [String: [String: Int]] {
+        var fresh: [String: [String: Int]] = [:]
+        for u in await tokenUsage(days: 366) { fresh[Store.day(u.time), default: [:]][u.account ?? "", default: 0] += u.tokens }
+        var archive = load(dailyPath) as? [String: [String: Int]] ?? [:]
+        let partial = Store.day(Date().addingTimeInterval(-366 * 86400))  // 最早那天只扫到一部分，不覆盖
+        // 日志被 CLI 清掉一部分时新算的会偏少，只在不少于存档时覆盖；换归属不改变当天合计，照常覆盖
+        for (day, m) in fresh where day > partial && m.values.reduce(0, +) >= archive[day]?.values.reduce(0, +) ?? 0 { archive[day] = m }
+        save(dailyPath, archive)
+        return archive
+    }
+
+    static func day(_ date: Date) -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
+    }
+
+    /// 最近 n 天（含今天）的合计；account 为 nil 时算所有账号
+    static func total(_ daily: [String: [String: Int]], days n: Int, account: String? = nil) -> Int {
+        (0..<n).reduce(0) { sum, i in
+            let m = daily[day(Calendar.current.date(byAdding: .day, value: -i, to: Date())!)] ?? [:]
+            return sum + (account.map { m[$0] ?? 0 } ?? m.values.reduce(0, +))
+        }
     }
 
     /// "max" + "default_claude_max_5x" → "Max 5x"

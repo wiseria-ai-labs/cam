@@ -48,14 +48,29 @@ Do not rename the vault item. The project had the name ClaudeAccountManager befo
 
 `addViaLogin()` runs `claude auth login` in a temporary `CLAUDE_CONFIG_DIR` in `~/Library/Application Support/cam/`. The current login does not change. The process environment does not include `CLAUDE*` and `ANTHROPIC*` variables.
 
-When the task is cancelled, the app stops the `claude` process. The **Quit** button cancels the login first. If it does not, the `claude` process continues to run after the app stops.
+When the task is cancelled, the app stops the `claude` process. The **Quit** menu item cancels the login first. If it does not, the `claude` process continues to run after the app stops.
 
 ### User interface
 
 - Use `NSStatusItem` with `NSPopover`. Do not use `MenuBarExtra`. A `MenuBarExtra` window does not change its height after the content changes.
 - `Model.run` does one operation at a time. While `busy` is set, the UI disables all actions. This also keeps Keychain access serial.
-- Show the switch and delete confirmations in the card. Do not use alerts. An alert can close the popover.
+- Show the switch and delete confirmations in the account row. The row keeps the same height, so the popover does not jump. Do not use alerts. An alert can close the popover.
 - The UI does not let the user delete the active account. The next refresh imports the active account again.
+- The panel has no footer. **Refresh** and **Quit** are in the right-click menu of the status item.
+- The left rail shows one item for each agent (`Agent.all`). Only Claude Code works now. Codex and Kimi Code have `soon` set and show as placeholders. The agent logos come from simple-icons (CC0).
+
+### Token usage
+
+The session logs of Claude Code (`<configDir or ~/.claude>/projects/**/*.jsonl`) do not record the account. CAM records this data itself in `~/Library/Application Support/cam/`. With `configDir`, the files are `<configDir>/cam-*`.
+
+| File | Content |
+|---|---|
+| `timeline.json` | The time of each change of the active account. |
+| `procs.json` | The `claude` processes that ran at a switch. The authentication stays with the process, so these processes use the old account until they stop. |
+| `daily.json` | The token total for each day and each account. The CLI deletes logs after 30 days, so the heat map uses this archive. |
+
+- Remove duplicate log entries by message id. One response writes many lines, and a resumed session copies old lines.
+- Overwrite a day in `daily.json` only if the new total is not less than the archived total. If the CLI deleted some logs, the new total is too small.
 
 ## Tests
 
