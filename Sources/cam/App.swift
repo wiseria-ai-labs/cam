@@ -171,7 +171,10 @@ final class StatusBar: NSObject {
         guard !popover.isShown else { return popover.performClose(nil) }
         guard let button = item.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        NSApp.activate()  // 让回车/Esc 快捷键生效
+        // macOS 14 的 activate() 是协作式的，前台 app 不让就不生效，面板不是 key window，
+        // 第一下点击只用来激活窗口、点不到账号行；回车/Esc 也要 key window 才响应
+        NSApp.activate(ignoringOtherApps: true)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
     /// 右键菜单：面板没有底栏，退出放在这里
