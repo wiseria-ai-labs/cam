@@ -1,14 +1,8 @@
 # CAM · Claude Account Manager
 
-macOS 菜单栏小工具，用来在同一台机器上管理多个 Claude Code 登录账号：一键切换、添加/删除账号、查看每个账号的 5 小时 / 7 天用量。
+macOS 菜单栏小工具，用来在同一台机器上管理多个 Claude Code 登录账号：一键切换、添加/删除账号、查看每个账号的 5 小时 / 7 天额度和 token 用量。
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/dashboard.png" width="300"><br><sub>账号总览（hover 时出现删除角标）</sub></td>
-    <td align="center"><img src="docs/confirm-switch.png" width="300"><br><sub>点击卡片 → 卡片内确认切换</sub></td>
-    <td align="center"><img src="docs/confirm-delete.png" width="300"><br><sub>点击 × → 卡片内确认删除</sub></td>
-  </tr>
-</table>
+<p align="center"><img src="docs/panel.png" width="580"></p>
 
 <sub>示意图为模拟数据。</sub>
 
