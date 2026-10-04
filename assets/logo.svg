@@ -1,18 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="540" viewBox="120 172 600 540">
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#EEF3FB"/></linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="18"/></filter>
     <linearGradient id="back" gradientUnits="userSpaceOnUse" x1="150" y1="320" x2="330" y2="710"><stop offset="0" stop-color="#3B86FF"/><stop offset="1" stop-color="#0A5CFF"/></linearGradient>
     <linearGradient id="front" gradientUnits="userSpaceOnUse" x1="330" y1="180" x2="470" y2="706"><stop offset="0" stop-color="#4F93FF"/><stop offset="0.5" stop-color="#8CBCFF"/><stop offset="1" stop-color="#D3E5FF"/></linearGradient>
     <radialGradient id="tip" gradientUnits="userSpaceOnUse" cx="585" cy="250" r="170"><stop offset="0" stop-color="#1166FF"/><stop offset="1" stop-color="#1166FF" stop-opacity="0"/></radialGradient>
     <linearGradient id="star" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5C9CFF"/><stop offset="1" stop-color="#2E77F2"/></linearGradient>
   </defs>
-  <rect x="100" y="118" width="824" height="824" rx="185" fill="#9FB4D6" opacity="0.45" filter="url(#shadow)"/>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
-  <g transform="translate(92 85)">
     <path fill="url(#back)" d="M250 290C170 345 122 420 124 490C126 610 215 700 335 706C370 707 400 704 430 696C320 680 210 600 205 470C203 400 220 335 250 290Z"/>
     <path id="c" d="M535 312C495 295 450 288 405 290C300 295 237 370 237 450C237 535 300 606 400 606C445 606 480 592 512 568C540 548 585 560 597 590C610 625 590 655 560 672C520 695 480 706 430 706C290 706 185 595 185 450C185 290 300 178 445 178C500 178 545 188 572 202C600 216 608 255 590 285C578 305 555 318 535 312Z" fill="url(#front)"/>
     <path d="M535 312C495 295 450 288 405 290C300 295 237 370 237 450C237 535 300 606 400 606C445 606 480 592 512 568C540 548 585 560 597 590C610 625 590 655 560 672C520 695 480 706 430 706C290 706 185 595 185 450C185 290 300 178 445 178C500 178 545 188 572 202C600 216 608 255 590 285C578 305 555 318 535 312Z" fill="url(#tip)"/>
     <path fill="url(#star)" stroke="url(#star)" stroke-width="10" stroke-linejoin="round" d="M628 354C636 412 650 430 714 442C650 454 636 472 628 530C620 472 606 454 542 442C606 430 620 412 628 354Z"/>
-  </g>
 </svg>

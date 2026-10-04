@@ -215,16 +215,34 @@ final class StatusBar: NSObject {
     /// 菜单栏图标，与 assets/menubar.svg 相同；内嵌在代码里，swift run 时也能用
     static let icon: NSImage = {
         let svg = """
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20.86 13.56A9 9 0 1 1 17.79 5.11"/>
-          <path d="M17.32 2.45L17.79 5.11L15.09 5.11"/>
-          <path stroke-width="1.3" d="M12.00 10.10L12.00 7.10M12.95 10.35L14.45 7.76M13.65 11.05L16.24 9.55M13.90 12.00L16.90 12.00M13.65 12.95L16.24 14.45M12.95 13.65L14.45 16.24M12.00 13.90L12.00 16.90M11.05 13.65L9.55 16.24M10.35 12.95L7.76 14.45M10.10 12.00L7.10 12.00M10.35 11.05L7.76 9.55M11.05 10.35L9.55 7.76"/>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24">
+          <path d="M13 4.75H8.75A7.25 7.25 0 0 0 8.75 19.25H13A2 2 0 0 0 13 15.25H8.75A3.25 3.25 0 0 1 8.75 8.75H13A2 2 0 0 0 13 4.75Z" fill="none" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/>
+          <path d="M20 8.4C20.3 10.9 20.8 11.4 23.4 12C20.8 12.6 20.3 13.1 20 15.6C19.7 13.1 19.2 12.6 16.6 12C19.2 11.4 19.7 10.9 20 8.4Z" stroke="#000" stroke-width="0.6" stroke-linejoin="round"/>
         </svg>
         """
         let image = NSImage(data: Data(svg.utf8))!
         image.isTemplate = true  // 跟随菜单栏深浅色
         image.accessibilityDescription = "CAM"
         return image
+    }()
+
+    /// 面板标题里的彩色标志，与 assets/logo.svg 相同
+    static let logo: NSImage = {
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="600" height="540" viewBox="120 172 600 540">
+          <defs>
+            <linearGradient id="back" gradientUnits="userSpaceOnUse" x1="150" y1="320" x2="330" y2="710"><stop offset="0" stop-color="#3B86FF"/><stop offset="1" stop-color="#0A5CFF"/></linearGradient>
+            <linearGradient id="front" gradientUnits="userSpaceOnUse" x1="330" y1="180" x2="470" y2="706"><stop offset="0" stop-color="#4F93FF"/><stop offset="0.5" stop-color="#8CBCFF"/><stop offset="1" stop-color="#D3E5FF"/></linearGradient>
+            <radialGradient id="tip" gradientUnits="userSpaceOnUse" cx="585" cy="250" r="170"><stop offset="0" stop-color="#1166FF"/><stop offset="1" stop-color="#1166FF" stop-opacity="0"/></radialGradient>
+            <linearGradient id="star" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5C9CFF"/><stop offset="1" stop-color="#2E77F2"/></linearGradient>
+          </defs>
+            <path fill="url(#back)" d="M250 290C170 345 122 420 124 490C126 610 215 700 335 706C370 707 400 704 430 696C320 680 210 600 205 470C203 400 220 335 250 290Z"/>
+            <path id="c" d="M535 312C495 295 450 288 405 290C300 295 237 370 237 450C237 535 300 606 400 606C445 606 480 592 512 568C540 548 585 560 597 590C610 625 590 655 560 672C520 695 480 706 430 706C290 706 185 595 185 450C185 290 300 178 445 178C500 178 545 188 572 202C600 216 608 255 590 285C578 305 555 318 535 312Z" fill="url(#front)"/>
+            <path d="M535 312C495 295 450 288 405 290C300 295 237 370 237 450C237 535 300 606 400 606C445 606 480 592 512 568C540 548 585 560 597 590C610 625 590 655 560 672C520 695 480 706 430 706C290 706 185 595 185 450C185 290 300 178 445 178C500 178 545 188 572 202C600 216 608 255 590 285C578 305 555 318 535 312Z" fill="url(#tip)"/>
+            <path fill="url(#star)" stroke="url(#star)" stroke-width="10" stroke-linejoin="round" d="M628 354C636 412 650 430 714 442C650 454 636 472 628 530C620 472 606 454 542 442C606 430 620 412 628 354Z"/>
+        </svg>
+        """
+        return NSImage(data: Data(svg.utf8))!
     }()
 
     @objc func toggle() {
@@ -294,6 +312,7 @@ struct Panel: View {
         let soon = Agent.all.filter(\.soon)
         VStack(alignment: .leading, spacing: 10) {
             HStack {
+                Image(nsImage: StatusBar.logo).resizable().scaledToFit().frame(height: 14)
                 Text("CAM").font(.system(size: 14, weight: .bold))
                 Spacer()
                 Text(model.busy == "刷新中…" ? "刷新中…" : model.updated.map { "更新于 \($0.formatted(date: .omitted, time: .shortened))" } ?? "")
